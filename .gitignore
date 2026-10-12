@@ -1,0 +1,8 @@
+# Local build and test outputs.
+/4k_game
+/4k_game.exe
+/bin/
+*.test
+*.test.exe
+/coverage.out
+/coverage.html
