@@ -29,6 +29,20 @@ var noteColors = [chart.LaneCount]color.RGBA{
 	{R: 255, G: 205, B: 110, A: 255}, {R: 235, G: 150, B: 235, A: 255},
 }
 
+// Pastel lane colors at 25% opacity, drawn behind notes and the judge line.
+var highlightColors = func() [chart.LaneCount]color.NRGBA {
+	var colors [chart.LaneCount]color.NRGBA
+	for lane, c := range noteColors {
+		colors[lane] = color.NRGBA{
+			R: uint8((uint16(c.R) + 255) / 2),
+			G: uint8((uint16(c.G) + 255) / 2),
+			B: uint8((uint16(c.B) + 255) / 2),
+			A: 64,
+		}
+	}
+	return colors
+}()
+
 type hudState struct {
 	stats  judge.Stats
 	rank   judge.Rank
@@ -110,7 +124,7 @@ func (g *game) Draw(screen *ebiten.Image) {
 		vector.FillRect(screen, x, 0, laneWidth, screenHeight, color.RGBA{R: 36, G: 42, B: 52, A: 255}, false)
 		vector.FillRect(screen, x, 0, 1, screenHeight, color.RGBA{R: 80, G: 90, B: 105, A: 255}, false)
 		if g.down[lane] {
-			vector.FillRect(screen, x+6, screenHeight-8, laneWidth-12, 8, noteColors[lane], false)
+			vector.FillRect(screen, x, judgeY, laneWidth, screenHeight-judgeY, highlightColors[lane], false)
 		}
 	}
 	first, end := g.session.View.Range()

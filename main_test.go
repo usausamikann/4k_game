@@ -41,6 +41,7 @@ func (g *windowCheck) Update() error {
 	case 4:
 		delta = g.session.Timeline.Preparation + 300*time.Millisecond
 		down[0] = true
+		down[1] = true // A note must stay readable over its pressed-lane highlight.
 	}
 	err := g.game.updateAt(g.start.Add(delta), true, down)
 	g.applied = g.draws
@@ -67,6 +68,17 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		i := (y*w + x) * 4
 		if [4]byte(pixels[i:i+4]) != want {
 			g.err = fmt.Errorf("frame %d pixel (%d,%d)=%v want %v", g.draws, x, y, pixels[i:i+4], want)
+		}
+	}
+	checkHighlight := func(x, y, lane int) {
+		i := (y*w + x) * 4
+		c := highlightColors[lane]
+		background := [3]byte{36, 42, 52}
+		pastel := [3]byte{c.R, c.G, c.B}
+		for channel := 0; channel < 3; channel++ {
+			if pixels[i+channel] <= background[channel] || pixels[i+channel] >= pastel[channel] {
+				g.err = fmt.Errorf("highlight at (%d,%d) must blend with the lane: %v", x, y, pixels[i:i+4])
+			}
 		}
 	}
 	check(w-1, h-1, [4]byte{24, 28, 36, 255})
@@ -103,7 +115,12 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 			check(laneLeft+n.Lane*laneWidth+laneWidth/2, y, [4]byte{c.R, c.G, c.B, c.A})
 		}
 	case 3:
-		check(laneLeft+laneWidth/2, judgeY+4, [4]byte{36, 42, 52, 255})
+		checkHighlight(laneLeft+laneWidth/2, judgeY+4, 0)
+		checkHighlight(laneLeft+2, judgeY+20, 0)
+		checkHighlight(laneLeft+laneWidth-1, judgeY+20, 0)
+		checkHighlight(laneLeft+laneWidth/2, screenHeight-1, 0)
+		check(laneLeft+laneWidth/2, judgeY-2, [4]byte{36, 42, 52, 255})
+		check(laneLeft+laneWidth+laneWidth/2, judgeY+20, [4]byte{36, 42, 52, 255})
 		if g.session.States[0] != judge.Hit || g.session.Statistics().Combo != 1 || g.session.Last.Rank != judge.PClean {
 			g.err = fmt.Errorf("hit/HUD integration failed: now=%v states=%v stats=%+v last=%+v", g.session.Now, g.session.States, g.session.Statistics(), g.session.Last)
 		}
