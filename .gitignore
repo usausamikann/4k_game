@@ -6,3 +6,7 @@
 *.test.exe
 /coverage.out
 /coverage.html
+
+# Build artifacts
+/bin/
+*.exe
