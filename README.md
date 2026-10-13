@@ -1,10 +1,10 @@
 # 4K Game
 
 Go + Ebitengine で作る固定4レーンのリズムゲーム。
-現在は実装計画の Step 1 まで実装済み。単一パターンの JSON 読み込み・検証と
-BPM による時刻変換を `internal/chart` に用意している。
+現在は実装計画の Step 2 まで実装済み。単一パターンの JSON 読み込み・検証と
+BPM による時刻変換を `internal/chart`、判定エンジンを `internal/judge` に用意している。
 アプリは引き続き 640 × 480 の最小ウィンドウを表示する。
-入力判定・音声・ノーツ描画・パターン連結は今後実装する。
+入力デバイスとの接続・音声・ノーツ描画・パターン連結は今後実装する。
 
 ## 必要なもの
 
@@ -47,7 +47,7 @@ go test ./...
 ウィンドウを閉じると終了する。Windows 用の実行ファイルを作る場合は
 `go build -o bin/4k_game.exe .` を使う。
 
-`go test ./...` は画面なしで譜面の単体テストを実行する。
+`go test ./...` は画面なしで譜面と判定の単体テストを実行する。
 既存の描画テストは `go test -tags=graphics ./...` で明示的に実行できる。
 描画テストは実際にウィンドウを開き、数フレーム後に自動で閉じる。
 
@@ -118,8 +118,71 @@ ID は整列後の順序で 0 から割り当て、入力順に依存しない�
 BPM180 の 480／960／3840tick はそれぞれ
 166,666,667／333,333,333／1,333,333,333ns。
 
+## 判定エンジン
+
+`internal/judge` は描画や入力デバイスに依存せず、確定済みの
+`[]chart.ScheduledNote` と時刻付き Press/Release イベントを受け取る。
+単一パターンに長さを限定せず、将来連結した譜面の全体時刻もそのまま扱える。
+連結そのものの処理は持たない。ID は譜面全体で一意にする。
+
+```go
+engine, err := judge.New(notes, judge.DefaultWindows())
+if err != nil {
+    return err
+}
+err = engine.Process([]judge.Event{
+    {Lane: 0, Time: 0, Kind: judge.Press},
+    {Lane: 0, Time: time.Millisecond, Kind: judge.Release},
+}, time.Millisecond)
+if err != nil {
+    return err
+}
+results := engine.Results()
+stats := engine.Statistics()
+emptyPresses := engine.EmptyPresses()
+```
+
+`judge` のインポート先は `github.com/usausamikann/4k_game/internal/judge`。
+時間はすべて同じゲーム開始基準の `time.Duration` とする。
+エンジンは譜面をコピーし、結果と統計のスナップショットを返す。
+
+| 判定ランク | offset の絶対値（標準設定） | 状態 | コンボ |
+| --- | --- | --- | --- |
+| P-CLEAN | 30ms 以下 | Hit | 継続 |
+| CLEAN | 30ms 超、60ms 以下 | Hit | 継続 |
+| BAD | 60ms 超、90ms 以下 | Hit | 継続 |
+| MISS | 受付期限まで未判定 | Miss | 0 に戻す |
+
+Pending は未判定状態で、ランクを持たない。状態とランクは別フィールドに保持する。
+各 Hit は入力時刻、予定時刻、符号付き `Offset = 入力時刻 - 予定時刻` を記録する。
+負は早い入力、正は遅い入力。MISS の InputTime/Offset は使用しない。
+ランク別件数、現在・最大コンボ、空打ち件数を統計に持ち、空打ちイベントも保存する。
+空打ちはノーツを消費せずコンボを変えない。Press はキー状態の立ち上がりのみ判定し、
+Release までの繰り返し Press は空打ちにも数えない。
+
+同じレーンの元ノーツ間の中点で担当区間を固定し、中点ちょうどは後続ノーツに所属する。
+中点が半ナノ秒の場合は切り上げ、整数ナノ秒の入力で数学上の中点との前後関係を保つ。
+先頭・末尾の片側は無限遠として扱うが、成功には最大判定幅も必要。
+判定済みノーツの区間で押しても、未判定ノーツへフォールバックしない。
+受付終了は右中点に達した時点、または予定時刻 + BAD 幅を超えた最初のナノ秒。
+90ms ちょうどは成功可能だが、そこが右中点なら後続ノーツが担当する。
+`ResolvedAt` は Hit の入力時刻または自動 MISS の確定時刻を表す。
+
+`Process` はバッチ全体を検証してから時刻順に安定整列し、各イベント直前に自動 MISS、
+全イベント処理後に現在時刻まで自動 MISS を進める。同時刻のイベントは渡した順序を保つ。
+自動 MISS は期限順、同期限は予定時刻・レーン・ID の順で確定する。
+現在時刻の逆行、前回の現在時刻より古いイベント、未来のイベント、不正なレーン・種別は
+状態を変更せずエラーにする。未来のイベントは呼び出し側で次のバッチまで保持する。
+補正や時刻の推定は行わず、同時刻の Press/Release の順序も呼び出し側で決める。
+
+`Windows` で判定幅を変更でき、`0 < P-CLEAN < CLEAN < BAD` を必須とする。
+同一レーンの重複tick・重複予定時刻、重複ID、負の譜面座標、
+MISS期限が `time.Duration` に収まらない譜面を拒否する。
+エンジンの操作は単一の goroutine から行う。
+
 ## 実装計画
 
 [実装方針と実装順](memo/4k_game_implementation_plan_20261012.txt)を参照。
 Step 1 は [2026-10-13 の引き継ぎ方針](memo/4k_game_step1_handoff_20261013.txt)を優先。
-次は Step 2（中点判定エンジン）。既存の `memo/` はそのまま保持する。
+Step 2 の判定名・コンボ仕様は今回の指定（P-CLEAN / CLEAN / BAD / MISS）を採用。
+次は Step 3（4レーン描画とゲーム時計）。既存の `memo/` はそのまま保持する。
