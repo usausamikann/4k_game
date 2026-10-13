@@ -2,6 +2,7 @@
 package judge
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -74,6 +75,7 @@ type Engine struct {
 	empty      []Event
 	started    bool
 	now        time.Duration
+	changes    []Result
 }
 
 // New accepts a complete timeline, including notes beyond a single pattern.
@@ -169,8 +171,12 @@ func (e *Engine) Process(events []Event, now time.Duration) error {
 			return fmt.Errorf("event %d: time outside current batch interval", i)
 		}
 	}
-	ordered := slices.Clone(events)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Time < ordered[j].Time })
+	ordered := events
+	compare := func(a, b Event) int { return cmp.Compare(a.Time, b.Time) }
+	if !slices.IsSortedFunc(events, compare) {
+		ordered = slices.Clone(events)
+		slices.SortStableFunc(ordered, compare)
+	}
 	for _, event := range ordered {
 		e.advance(event.Time)
 		if event.Kind == Release {
@@ -198,6 +204,7 @@ func (e *Engine) advance(now time.Duration) {
 			continue
 		}
 		r.State, r.Rank, r.ResolvedAt = Miss, MissRank, ex.at
+		e.changes = append(e.changes, *r)
 		e.stats.Miss++
 		e.stats.Combo = 0
 	}
@@ -227,6 +234,7 @@ func (e *Engine) press(event Event) {
 				r.Rank = Bad
 				e.stats.Bad++
 			}
+			e.changes = append(e.changes, *r)
 			e.stats.Combo++
 			if e.stats.Combo > e.stats.MaxCombo {
 				e.stats.MaxCombo = e.stats.Combo
@@ -242,3 +250,11 @@ func (e *Engine) press(event Event) {
 func (e *Engine) Results() []Result     { return slices.Clone(e.results) }
 func (e *Engine) Statistics() Stats     { return e.stats }
 func (e *Engine) EmptyPresses() []Event { return slices.Clone(e.empty) }
+
+// DrainChanges copies only newly resolved notes into reusable caller storage.
+// Each transition is delivered exactly once, in processing order.
+func (e *Engine) DrainChanges(dst []Result) []Result {
+	dst = append(dst[:0], e.changes...)
+	e.changes = e.changes[:0]
+	return dst
+}
