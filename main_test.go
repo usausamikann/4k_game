@@ -1,3 +1,5 @@
+//go:build graphics
+
 package main
 
 import (
