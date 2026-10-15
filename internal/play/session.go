@@ -19,6 +19,8 @@ type Session struct {
 	Offsets                  Offsets
 	States                   []judge.State
 	Last                     judge.Result
+	LastHit                  judge.Result
+	HasLastHit               bool
 	HasLast                  bool
 	Now, VisualNow, JudgeNow time.Duration
 	engine                   *judge.Engine
@@ -84,6 +86,10 @@ func (s *Session) UpdateAt(wall time.Time, focused bool, down [chart.LaneCount]b
 		s.States[index] = r.State
 		s.Last = r
 		s.HasLast = true
+		if r.State == judge.Hit {
+			s.LastHit = r
+			s.HasLastHit = true
+		}
 	}
 	s.Now, s.VisualNow, s.JudgeNow = now, visual, judgement
 	s.View.Update(visual)
