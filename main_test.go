@@ -4,10 +4,12 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/judge"
 	"github.com/usausamikann/4k_game/internal/play"
 )
@@ -90,6 +92,27 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		if now != -2666666667 || first != end {
 			g.err = fmt.Errorf("eight-beat preparation not initialized")
 		}
+		// Default HUD leaves the right pane empty; optional debug draws only there.
+		debugX := laneLeft + laneWidth*4 + 8
+		check(debugX, 0, [4]byte{24, 28, 36, 255})
+		h, _ := inputdebug.NewHUD(inputdebug.DefaultTPS)
+		h.Refresh(g.start, 239.8, 60, inputdebug.State{})
+		g.inputDebug = h
+		g.game.Draw(screen)
+		read()
+		hasText := false
+		for y := 0; y < 14; y++ {
+			for x := debugX; x < w; x++ {
+				i := (y*w + x) * 4
+				if pixels[i] != 24 || pixels[i+1] != 28 || pixels[i+2] != 36 {
+					hasText = true
+				}
+			}
+		}
+		if !hasText {
+			g.err = fmt.Errorf("debug overlay was not rendered")
+		}
+		g.inputDebug = nil
 	case 1:
 		c := noteColors[0]
 		check(laneLeft+laneWidth/2, 160, [4]byte{c.R, c.G, c.B, c.A})
@@ -114,6 +137,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 			c := noteColors[n.Lane]
 			check(laneLeft+n.Lane*laneWidth+laneWidth/2, y, [4]byte{c.R, c.G, c.B, c.A})
 		}
+		g.inputDebug, _ = inputdebug.NewHUD(inputdebug.DefaultTPS)
 	case 3:
 		checkHighlight(laneLeft+laneWidth/2, judgeY+4, 0)
 		checkHighlight(laneLeft+2, judgeY+20, 0)
@@ -131,6 +155,9 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		if g.session.States[1] != judge.Miss || g.session.Statistics().Combo != 0 {
 			g.err = fmt.Errorf("MISS render/combination failed")
 		}
+		if g.inputDebug == nil || !strings.Contains(g.inputDebug.Text(), "Last judge MISS\nLast HIT offset:\n+0.0ms ON TIME") {
+			g.err = fmt.Errorf("debug did not separate latest MISS from last Hit")
+		}
 		g.sawMiss = true
 	}
 	a, b := g.session.View.Range()
@@ -140,6 +167,9 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 	g.draws++
 }
 func TestGameWindow(t *testing.T) {
+	if err := configureTPS(inputdebug.DefaultTPS); err != nil {
+		t.Fatal(err)
+	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	production, err := newGame("patterns/sample.json", 180, 240, play.Offsets{}, 0)
 	if err != nil {
@@ -169,6 +199,27 @@ func TestKeyBindings(t *testing.T) {
 	for _, text := range []string{"D,D,J,K", "D,F,J", "D,F,J,???"} {
 		if _, err := parseBindings(text); err == nil {
 			t.Fatal("invalid binding accepted")
+		}
+	}
+}
+
+func TestTPSSetting(t *testing.T) {
+	previous := ebiten.TPS()
+	defer ebiten.SetTPS(previous)
+	for _, tps := range []int{60, 120, 240} {
+		if err := configureTPS(tps); err != nil {
+			t.Fatal(err)
+		}
+		if ebiten.TPS() != tps {
+			t.Fatalf("TPS not applied: %d", ebiten.TPS())
+		}
+	}
+	for _, tps := range []int{0, -1, 144} {
+		if err := configureTPS(tps); err == nil {
+			t.Fatal("invalid TPS accepted")
+		}
+		if ebiten.TPS() != 240 {
+			t.Fatal("invalid setting changed target")
 		}
 	}
 }

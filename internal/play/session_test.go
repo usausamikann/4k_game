@@ -217,3 +217,20 @@ func TestSessionChordsAndReleaseRepress(t *testing.T) {
 		t.Fatal("release/repress failed")
 	}
 }
+
+func TestLastHitSurvivesLaterMiss(t *testing.T) {
+	s := makeSession(t, []chart.ScheduledNote{
+		{ID: 0, Lane: 0, Time: 520 * time.Millisecond, AbsoluteTick: 500},
+		{ID: 1, Lane: 1, Time: 500 * time.Millisecond, AbsoluteTick: 480},
+	}, Offsets{A: 20 * time.Millisecond, B: 30 * time.Millisecond})
+	start := time.Now()
+	updateSession(t, s, start, true, [4]bool{})
+	updateSession(t, s, start.Add(s.Timeline.Preparation+560*time.Millisecond), true, [4]bool{true})
+	if !s.HasLastHit || s.LastHit.Offset != -10*time.Millisecond {
+		t.Fatalf("not corrected last Hit: %+v", s.LastHit)
+	}
+	updateSession(t, s, start.Add(s.Timeline.Preparation+700*time.Millisecond), true, [4]bool{true})
+	if s.Last.State != judge.Miss || s.LastHit.Note.ID != 0 || s.LastHit.Offset != -10*time.Millisecond {
+		t.Fatal("MISS replaced last Hit")
+	}
+}

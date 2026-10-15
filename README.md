@@ -1,7 +1,7 @@
 # 4K Game
 
 Go + Ebitengine で作る固定4レーンのリズムゲーム。
-現在は実装計画の Step 4 まで実装済み。単一パターンの JSON 読み込み・検証と
+現在は実装計画の Step 4.5 まで実装済み。単一パターンの JSON 読み込み・検証と
 BPM による時刻変換を `internal/chart`、判定エンジンを `internal/judge` に用意している。
 アプリは 640 × 480 のウィンドウに4レーン・判定線と流下する TAP ノーツを表示する。
 ゲーム時計と描画対象管理は GUI 非依存の `internal/play` に用意している。
@@ -59,6 +59,7 @@ A/B=0の場合、時刻0のノーツは準備時間を経て判定線に到達�
 ```sh
 go run . -pattern patterns/sample.json -bpm 120 -speed 300 -offset-a 10 -offset-b -5 -sudden 20.0
 go run . -keys A,S,L,P
+go run . -tps 120 -debug-input
 ```
 
 `go test ./...` は画面なしで譜面・判定・時計・描画対象計算の単体テストを実行する。
@@ -252,9 +253,14 @@ Windows実機での描画・フォーカス操作の確認は未実施。
 入力がない Update でも自動 MISS を進め、各入力直前に MISS、最後に現在時刻まで
 MISS を処理する既存ルールを維持する。P-CLEAN / CLEAN / BAD は全てコンボ継続。
 
-OSの実イベント時刻は取得しておらず、補間・推定も行わない。既定の更新頻度60Hzでは
-検出間隔は約16.7msで、負荷等によっても変わる。Update間で Press/Release が完結した
-入力は取りこぼし得る。同じ Update の複数キーには同じ検出時刻を付ける。
+OSの実イベント時刻は取得しておらず、補間・推定も行わない。
+既定240 TPSの更新周期の目安は4.17ms（60 TPSは16.67ms、120 TPSは8.33ms）。
+Ebitengine v2.10.5の `IsKeyPressed` は「tick中に押されたキー」を検出できる場合もあり、
+単なる瞬間的なOSキー状態と同一ではない。一方、同じtick内の複数のPress/Release往復を
+現在のTrackerで全件復元できるわけではない。Releaseを独立に認識できないと次のPressを
+数えられない場合もある。同じUpdateの複数キーには同じ検出時刻を付ける。
+TPSは更新の目標値であり、OSイベント取得周期や実入力時刻の精度の保証ではない。
+複数UpdateとOSイベントの取り込みが同じ描画フレームで処理される場合もある。
 Windowsネイティブ入力へ移行する場合、取得部分を差し替え、`Clock.At` と
 同じオフセットでイベントを判定時刻に変換する。Windows実機で入力精度・高速連打・
 描画・フォーカス操作の最終検証が必要で、今回それらの実測は行っていない。
@@ -318,9 +324,62 @@ input/judge/playのレース検出付きテスト、`go vet`、Linux/Windows amd
 壁の遮蔽・レーン外の保持・判定線・Hit非表示・MISS色を実際のピクセルで確認する。
 実機の打鍵とOS入力遅延を検証したものではない。音声は今回出力しない。
 
+## TPS切替と入力デバッグ表示（Step 4.5）
+
+`-tps` は60 / 120 / 240のみ受け付け、暫定の既定値は240。
+起動前に `ebiten.SetTPS` へ設定し、不正値は丸めずにエラーにする。
+TPSを変えても判定幅・中点・譜面予定時刻・BPM・実時間ベースの時計・速度は変えない。
+描画FPSの上限やVSync設定は変更しない。
+
+`-debug-input` を指定した場合のみ、画面右側のレーン外に以下を表示する。
+
+- Target TPS：設定した更新目標値。
+- TPS / FPS：`ebiten.ActualTPS()` / `ebiten.ActualFPS()` の参考値。
+- Last judge：直近の確定判定。
+- Last HIT offset：直近HitのA/B補正後の `Result.Offset` を符号付きmsで表示。
+- Empty presses：空打ち回数。
+
+負の誤差はFAST、正はLATE、0はON TIME。例は `-12.3ms FAST` / `+8.7ms LATE`。
+MISSには入力誤差がないため、MISSのoffsetは生成しない。Last judgeがMISSになっても
+Last HIT offsetには最後のHitの誤差を残す。Hit未発生なら `- (no Hit yet)` と表示する。
+Sessionは判定差分を受け取る際に直近Hitを一件保持し、全結果配列をコピーしない。
+
+表示文字列と実測TPS/FPSの取得は実時間で最大4回/秒に制限し、描画では文字列を再利用する。
+停止中も実時間の間隔で更新する。無効時は実測値取得・デバッグ文字列生成・追加描画をせず、
+従来の簡素なHUDを維持する。ActualTPS/FPSは揺れや起動時の0を含む参考値で、
+OS入力のタイムスタンプ精度やCPU使用率そのものを測定する値ではない。
+
+Windowsのリポジトリルートから、同じexe・譜面・BPM・A/B・入力デバイスで比較する。
+各コマンドの比較が終わったらウィンドウを閉じて次を実行する。
+
+```powershell
+go build -o bin/4k_game.exe .
+.\bin\4k_game.exe -tps 60 -debug-input
+.\bin\4k_game.exe -tps 120 -debug-input
+.\bin\4k_game.exe -tps 240 -debug-input
+```
+
+CPU使用率、認識漏れ、FAST/LATEの偏り、TPSの安定性、描画とフォーカス復帰を実機で確認する。
+デバッグ表示自体の負荷もあるため、必要に応じて無効時と比較する。
+クラウド上のテストは実機の打鍵精度・TPS安定性・CPU負荷の検証を代替しない。
+240 TPSが常に優れる／十分と決めず、Windows実機で問題を確認してから
+高速イベント方式への移行や既定値を再評価する。今回はRaw Input等を導入しない。
+
+テストでは同一の人工イベント時刻列を異なるTPS相当の更新バッチに分割し、
+全判定・offset・空打ち・統計と譜面時刻の一致を確認する。
+これは同じ物理打鍵が各TPSで同じように検出されることを証明するテストではない。
+
+Step 4.5のクラウド検証（Go 1.26.9 / Linux）は通常・graphicsテスト、`go vet`、
+inputdebug/playのレース検出、Linux/Windows amd64ビルドが成功。
+新しいinputdebugパッケージの文カバレッジは100%。GUIテストでは実際のTPS設定値、
+デバッグ表示の有無、直近MISSと過去のHit誤差の分離を確認している。
+Windows実機の入力精度・TPS安定性・CPU使用率は未検証。
+
+
 ## 実装計画
 
 [実装方針と実装順](memo/4k_game_implementation_plan_20261012.txt)を参照。
 Step 1 は [2026-10-13 の引き継ぎ方針](memo/4k_game_step1_handoff_20261013.txt)を優先。
 Step 2 の判定名・コンボ仕様は今回の指定（P-CLEAN / CLEAN / BAD / MISS）を採用。
-次は Step 5（音声・メトロノーム）。既存の `memo/` はそのまま保持する。
+Step 4.5 は [入力計測と将来イベント設計メモ](memo/4k_game_step45_input_measurement_and_future_event_design_20261013.txt)を参照。
+次はWindows実機でTPSを比較し、その後Step 5（音声・メトロノーム）へ進む。既存の `memo/` はそのまま保持する。

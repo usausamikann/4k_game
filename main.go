@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"github.com/usausamikann/4k_game/internal/chart"
+	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/judge"
 	"github.com/usausamikann/4k_game/internal/play"
 )
@@ -51,13 +52,14 @@ type hudState struct {
 	count  int
 }
 type game struct {
-	session  *play.Session
-	scroll   play.Scroll
-	keys     [chart.LaneCount]ebiten.Key
-	sudden   play.Sudden
-	hud      string
-	hudState hudState
-	down     [chart.LaneCount]bool
+	session    *play.Session
+	scroll     play.Scroll
+	keys       [chart.LaneCount]ebiten.Key
+	sudden     play.Sudden
+	hud        string
+	hudState   hudState
+	down       [chart.LaneCount]bool
+	inputDebug *inputdebug.HUD
 }
 
 func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.Sudden) (*game, error) {
@@ -114,6 +116,15 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 		g.hud = fmt.Sprintf("4K Game\n\n%s\n\n%s\nCOMBO %d\nEMPTY %d", status, rank, state.stats.Combo, state.stats.EmptyPresses)
 		g.hudState = state
 	}
+	if g.inputDebug != nil && g.inputDebug.Due(wall) {
+		g.inputDebug.Refresh(wall, ebiten.ActualTPS(), ebiten.ActualFPS(), inputdebug.State{
+			LastJudge:     g.session.Last.Rank,
+			LastHitOffset: g.session.LastHit.Offset,
+			HasHit:        g.session.HasLastHit,
+			EmptyPresses:  state.stats.EmptyPresses,
+		})
+	}
+
 	return nil
 }
 
@@ -150,6 +161,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 	// Keep the line in front of the wall even at full coverage.
 	vector.FillRect(screen, laneLeft, judgeY-1, laneWidth*chart.LaneCount, 2, color.White, false)
 	ebitenutil.DebugPrint(screen, g.hud)
+	if g.inputDebug != nil {
+		ebitenutil.DebugPrintAt(screen, g.inputDebug.Text(), laneLeft+laneWidth*chart.LaneCount+8, 0)
+	}
 
 }
 func (*game) Layout(_, _ int) (int, int) { return screenWidth, screenHeight }
@@ -162,7 +176,12 @@ func main() {
 	offsetB := flag.Float64("offset-b", 0, "judgement-only offset in milliseconds")
 	suddenText := flag.String("sudden", "0.0", "upper lane cover: 0.0..40.0, step 0.1")
 	keysText := flag.String("keys", "D,F,J,K", "four distinct letter keys in lane order")
+	tps := flag.Int("tps", inputdebug.DefaultTPS, "update target: 60, 120, or 240")
+	debugInput := flag.Bool("debug-input", false, "show TPS/FPS and input judgement diagnostics")
 	flag.Parse()
+	if err := configureTPS(*tps); err != nil {
+		log.Fatal(err)
+	}
 	a, err := play.OffsetMilliseconds(*offsetA)
 	if err != nil {
 		log.Fatal(err)
@@ -184,6 +203,13 @@ func main() {
 		log.Fatal(err)
 	}
 	g.keys = keys
+	if *debugInput {
+		debug, err := inputdebug.NewHUD(*tps)
+		if err != nil {
+			log.Fatal(err)
+		}
+		g.inputDebug = debug
+	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("4K Game")
 	// Receive focus changes even while unfocused; the game clock freezes explicitly.
@@ -191,4 +217,13 @@ func main() {
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// Set only the update target; leave FPS, clock, chart and scroll settings alone.
+func configureTPS(tps int) error {
+	if err := inputdebug.ValidateTPS(tps); err != nil {
+		return err
+	}
+	ebiten.SetTPS(tps)
+	return nil
 }
