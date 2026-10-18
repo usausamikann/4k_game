@@ -1,12 +1,12 @@
 # 4K Game
 
 Go + Ebitengine で作る固定4レーンのリズムゲーム。
-現在は実装計画の Step 4.5 まで実装済み。単一パターンの JSON 読み込み・検証と
+現在は実装計画の Step 5 まで実装済み。単一パターンの JSON 読み込み・検証と
 BPM による時刻変換を `internal/chart`、判定エンジンを `internal/judge` に用意している。
 アプリは 640 × 480 のウィンドウに4レーン・判定線と流下する TAP ノーツを表示する。
 ゲーム時計と描画対象管理は GUI 非依存の `internal/play` に用意している。
 D/F/J/K の入力判定、判定表示、タイミング調整 A/B、上部遮蔽 SUDDEN+ に対応。
-音声・パターン連結・本格的な設定画面と結果画面は今後実装する。
+5種類から選べるメトロノーム音声に対応。キー別の打鍵音・パターン連結・本格的な設定画面と結果画面は今後実装する。
 
 ## 必要なもの
 
@@ -29,11 +29,11 @@ Debian / Ubuntu では以下で準備できる。
 ```sh
 sudo apt-get update
 sudo apt-get install -y build-essential pkg-config libx11-dev libxrandr-dev \
-  libxcursor-dev libxi-dev libxinerama-dev libxxf86vm-dev libgl1-mesa-dev
+  libxcursor-dev libxi-dev libxinerama-dev libxxf86vm-dev libgl1-mesa-dev libasound2-dev
 ```
 
 WSL でウィンドウを表示するには WSLg などが必要。
-音声の実装時には ALSA の開発ライブラリも必要になる。
+音声のビルドには ALSA の開発ライブラリ、実行には利用可能な音声出力デバイスが必要。
 
 ## 起動・ビルド・テスト
 
@@ -60,6 +60,7 @@ A/B=0の場合、時刻0のノーツは準備時間を経て判定線に到達�
 go run . -pattern patterns/sample.json -bpm 120 -speed 300 -offset-a 10 -offset-b -5 -sudden 20.0
 go run . -keys A,S,L,P
 go run . -tps 120 -debug-input
+go run . -metronome-sound glass_002 -debug-audio
 ```
 
 `go test ./...` は画面なしで譜面・判定・時計・描画対象計算の単体テストを実行する。
@@ -282,7 +283,7 @@ Hit は描画から除外し、MISS は暗い赤で退出まで表示する。�
 | --- | --- | --- |
 | 描画・可視範囲 | visualNow = now − A | 判定線到達 T + A |
 | 入力・判定・自動 MISS | judgeNow = now − A − B | 判定中心 T + A + B |
-| カウント・将来の音声 | 元の now | 拍時刻 T |
+| カウント・音声 | 元の now | 拍時刻 T |
 
 元の `ScheduledNote.Time`、中点境界、判定幅は変更しない。
 入力イベントにも現在時刻と同じ補正を適用する。`Result.InputTime` は補正後の
@@ -302,7 +303,7 @@ BPM、スクロール速度には影響しない。上・下キーでの変更�
 
 ### 固定8拍の準備タイムライン
 
-COUNTの4拍、SILENTの4拍、その後に譜面時刻0という構成。今回は音声を出さない。
+COUNTの4拍、SILENTの4拍、その後に譜面時刻0という構成。Step 5ではCOUNTとPLAYの拍に音声を配置する。
 BPM180の基準時刻は以下のとおり（表示上のミリ秒は丸めた値）。
 
 | 区間 | 元のゲーム時刻 |
@@ -311,7 +312,7 @@ BPM180の基準時刻は以下のとおり（表示上のミリ秒は丸めた�
 | 無音開始 | −1333.333ms |
 | 譜面開始・将来のメトロノーム再開 | 0ms |
 
-`Timeline.Preparation`、`CountTimes`、`SilenceStart` と `BeatTime(beat)` を Step 5 に利用できる。
+`Timeline.Preparation`、`CountTimes`、`SilenceStart` と `BeatTime(beat)` が基準時刻を定義する。
 8拍や各拍の絶対tickから個別に `chart.TickToTime` で計算し、丸めた1拍を加算しない。
 停止・再開を含む元の時計を使うため、音声タイムラインにA/Bは適用しない。
 カウントと無音中もノーツはスクロールする。最初のノーツの早側判定幅や負のオフセットも
@@ -322,7 +323,7 @@ Step 4 の検証結果（Go 1.26.9 / Linux）：通常テスト、Xvfb上のgrap
 input/judge/playのレース検出付きテスト、`go vet`、Linux/Windows amd64ビルドが成功。
 入力・判定パッケージの文カバレッジは100%。GUIテストは制御されたキー状態を使い、
 壁の遮蔽・レーン外の保持・判定線・Hit非表示・MISS色を実際のピクセルで確認する。
-実機の打鍵とOS入力遅延を検証したものではない。音声は今回出力しない。
+実機の打鍵とOS入力遅延を検証したものではない。Step 4の時点では音声は未実装。
 
 ## TPS切替と入力デバッグ表示（Step 4.5）
 
@@ -376,10 +377,104 @@ inputdebug/playのレース検出、Linux/Windows amd64ビルドが成功。
 Windows実機の入力精度・TPS安定性・CPU使用率は未検証。
 
 
+## メトロノーム（Step 5）
+
+起動時の `-metronome-sound` で5候補のいずれかを選択する。暫定既定は `glass_002`。
+
+```sh
+go run . -bpm 180 -metronome-sound glass_002
+go run . -bpm 220 -metronome-sound switch8 -debug-audio
+```
+
+| 選択値 | 元のファイル | 起動時に除く先行部分（48kHzでの測定） |
+| --- | --- | --- |
+| switch8 | switch8.ogg | 約113.167ms |
+| switch19 | switch19.ogg | 約119.583ms |
+| switch29 | switch29.ogg | 約113.250ms |
+| glass_002 | glass_002.ogg | 0ms |
+| pluck_001 | pluck_001.ogg | 0ms |
+
+元のKenney Interface Sounds音源はCC0 1.0。出典・ライセンスは
+[音源README](assets/audio/README.md)を参照。OGGは変更せず `go:embed` でexeへ同梱するため、
+音源を探す作業ディレクトリには依存しない（譜面JSONは従来どおり相対パス）。
+ファイル名／選択値を識別子に使い、不一致のあるTITLEタグで音を選ばない。
+
+`internal/audio` が選択したOGGを起動時に一度だけデコードする。
+Ebitengine v2.10.5 の Vorbis デコーダとリサンプラでmono/stereoの44.1kHz原本を
+48kHz・stereo・float32 little-endian PCMへ統一する。
+デコード上限は2秒。ピークの10%に最初に達するサンプルを主要な立ち上がりとし、
+その1ms前から保持する再現可能な処理でswitch系の長い先行部分を補正する。
+トリミングした先端の0.5msだけフェードし、主要なアタックとピークを保持する。
+保持する1ms分は意図的な余裕で、知覚上の立ち上がりやスピーカー遅延が厳密に0になるとは主張しない。
+原本の音量差は原則維持し、出力ピークが0.8以下になる固定ゲインと重なり分の余裕を設ける。
+各拍の音色・ゲイン・ピッチは同じで、小節頭／PLAY頭にアクセントは付けない。
+
+COUNTで4クリック、次の4拍は無音、PLAYの時刻0から4分音符間隔で鳴らし続ける。
+クリックは `round(n × 60 × 48000 / BPM)` の絶対フレーム位置へ配置し、
+半サンプルちょうどは上へ丸める。n=0〜3がCOUNT、4〜7は発音なし、8以降がPLAY。
+BPMは既存のfloat64値を正確な有理数として扱い、長時間の位置計算も整数オーバーフローを検出する。
+丸めた拍間隔の反復加算はしない。音声配置の丸め誤差は各拍で最大0.5サンプルであり、
+それとは別に、デバイスと単調時計の速度差・開始遅延・バッファ遅延は実機で検証する。
+
+PCMは単一の連続 `io.Reader` が必要分だけ生成し、Playerも一つだけ使う。
+数分分の無音配列、拍ごとのPlayer生成、UpdateやTickerによる拍トリガーは使わない。
+通常は波形の重なりをミックスする。長いCOUNT末尾がSILENTへはみ出すBPMでは境界前の
+最大2msでフェードし、SILENTをゼロPCMに保つ（ストリームの再スタートはしない）。
+メモリは選択音源のPCMと固定32音の重なり領域、Playerのバッファに限定される。
+重なりが32音を超えるような極端なBPM、サンプル位置の範囲外はエラーにする。
+サンプル生成の定常処理で配列を生成せず、絶対位置計算の小さな整数演算は拍ごとにだけ行う。
+
+### 時計との対応と停止・復帰
+
+音声デバイスのReadyとフォーカスを待ち、Player.Playの呼出時刻と同じ単調時計の基準で
+Sessionを開始する。ストリーム位置0を `-Timeline.Preparation` に対応付ける。
+8拍目の絶対サンプル位置が譜面時刻0へ最大0.5サンプル（48kHzで約10.4µs）とDuration丸め（1ns未満）の量子化差で対応する。
+COUNT内のTimelineとの対応も、ストリーム起点を共通にして1サンプル以内となる。
+A/B、スクロール速度、SUDDEN+、TPSを音声BPMやサンプル位置へ適用しない。
+
+フォーカス喪失では `PauseAndStopReading` で読み取りと再生を止め、SessionのClockも停止する。
+復帰では保持したPCMバッファの続きをPlayし、COUNTのやり直し・拍の再挿入・Seekはしない。
+アプリ終了時も読み取りを停止する。入力の保持キー抑制や判定ルールは従来どおり。
+
+`-debug-audio` はレーン外に最大4回/秒、`Player.Position() - Preparation` と
+`Clock-audio` の差、要求Playerバッファ50msを表示する。`-debug-input` と併用できる。
+Positionはバックエンドが推定する進行位置で、物理的なスピーカー／ヘッドホンの出音時刻ではない。
+50msはPlayerへ要求する値であり、OS・デバイス・Contextの全遅延の測定値ではない。
+起動・停止コマンドから実出音までのバッファ遅延や長時間の位相差は残り得る。
+毎フレームPositionへ時計を追従させたり、Seekや再生速度補正で位相を追いかけたりはしない。
+実機で観察した映像・音声・入力のずれはA/Bの意味を維持して個別に評価する。
+
+### 検証方法
+
+通常の `go test ./...` は音声デバイスなしで、全5音源のデコードと立ち上がり保持、
+48kHz化、安全な振幅、全拍の波形一致、長時間の絶対配置、COUNT/SILENT/PLAY、
+読み取りサイズ非依存、停止・復帰後のPCM連続性と時計対応を検証する。
+`go test -tags=graphics ./...` で従来の描画・入力回帰テストも実行できる。
+
+実際のデバイス初期化・PCM消費・フォーカス停止経路を含む追加テストは、利用できる
+画面と音声バックエンドがある環境で次を実行する（通常のgraphicsタグとは別実行）。
+
+```sh
+go test -tags=audiointegration -run TestAudioBackend -count=1 -timeout=30s .
+```
+
+クラウドではXvfbとALSA null出力でこの経路を検証できるが、null出力は実スピーカーの
+音質・速度・レイテンシ検証にはならない。Windows実機では全5候補の実出音、4クリック→
+4拍無音→均一クリック、BPM180/220の聴感と同期、Alt+Tab後の位相・重複の有無、
+長時間ドリフト、実際のCPU／メモリ使用量、スピーカー・ヘッドホン遅延を別途確認する。
+キー別打鍵音・音声設定UIはStep 5.5以降で、今回追加していない。
+
+Step 5のクラウド検証（Go 1.26.9 / Linux）は、通常・graphicsテスト、音声パッケージの
+レース検出付きテスト（文カバレッジ92.3%）、Xvfb＋ALSA nullの音声統合テスト
+（レース検出付き）、`go vet`、Linux/Windows amd64ビルド、`go mod verify` が成功。
+元の5音源バイナリと既存memo、判定・入力・時計のソースは変更していない。
+
+
 ## 実装計画
 
 [実装方針と実装順](memo/4k_game_implementation_plan_20261012.txt)を参照。
 Step 1 は [2026-10-13 の引き継ぎ方針](memo/4k_game_step1_handoff_20261013.txt)を優先。
 Step 2 の判定名・コンボ仕様は今回の指定（P-CLEAN / CLEAN / BAD / MISS）を採用。
 Step 4.5 は [入力計測と将来イベント設計メモ](memo/4k_game_step45_input_measurement_and_future_event_design_20261013.txt)を参照。
-次はWindows実機でTPSを比較し、その後Step 5（音声・メトロノーム）へ進む。既存の `memo/` はそのまま保持する。
+Step 5 は [メトロノーム引き継ぎ仕様](memo/4k_game_step5_metronome_handoff_20261018.md)を優先。
+次はWindows実機で音声を確認し、Step 5.5以降へ進む。既存の `memo/` はそのまま保持する。

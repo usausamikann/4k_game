@@ -2,7 +2,7 @@
 
 Source: Kenney, [Interface Sounds](https://kenney.nl/assets/interface-sounds) — CC0 1.0. Attribution is not required, but credit to Kenney is welcome. Please retain the original upstream license/readme with the downloaded pack where convenient.
 
-The *five* original Ogg Vorbis files to add here before Codex starts Step 5 are:
+The five original Ogg Vorbis files committed for Step 5 are:
 
 - `switch8.ogg`
 - `switch19.ogg`
@@ -14,6 +14,8 @@ All five were selected by the user. Current subjective favorites: `glass_002` an
 
 Filenames, not embedded OGG `TITLE` tags, identify a sound. Some upstream files contain mismatched tags.
 
-These five OGG binaries have **not** been uploaded in this documentation PR; this is an intentional checklist. Preserve the original source files, and make any audible-onset trimming/resampling reproducible in the implementation rather than overwriting assets.
+All five binaries were added in PR #9 and remain unchanged. `assets.go` embeds them in the executable. Step 5 decodes the selected file once, resamples to 48kHz stereo, and reproducibly trims the lead-in in memory; it never overwrites the original OGG. See the root README for sound selection and measured trim offsets.
+
+License reference: https://creativecommons.org/publicdomain/zero/1.0/ . Filenames and explicit sound IDs are authoritative; embedded TITLE tags are not used.
 
 See `memo/4k_game_step5_metronome_handoff_20261018.md` for the actual Codex implementation requirements. No downbeat accent and no keysounds in Step 5.

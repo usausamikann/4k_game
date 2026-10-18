@@ -10,6 +10,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	metronome "github.com/usausamikann/4k_game/internal/audio"
 	"github.com/usausamikann/4k_game/internal/chart"
 	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/judge"
@@ -52,14 +53,18 @@ type hudState struct {
 	count  int
 }
 type game struct {
-	session    *play.Session
-	scroll     play.Scroll
-	keys       [chart.LaneCount]ebiten.Key
-	sudden     play.Sudden
-	hud        string
-	hudState   hudState
-	down       [chart.LaneCount]bool
-	inputDebug *inputdebug.HUD
+	session      *play.Session
+	scroll       play.Scroll
+	keys         [chart.LaneCount]ebiten.Key
+	sudden       play.Sudden
+	hud          string
+	hudState     hudState
+	down         [chart.LaneCount]bool
+	inputDebug   *inputdebug.HUD
+	metronome    *metronome.Transport
+	debugAudio   bool
+	audioHUD     string
+	nextAudioHUD time.Time
 }
 
 func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.Sudden) (*game, error) {
@@ -89,6 +94,11 @@ func (g *game) Update() error {
 	return g.updateAt(time.Now(), ebiten.IsFocused(), down)
 }
 func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool) error {
+	if g.metronome != nil && !g.metronome.Update(focused) {
+		g.hud = "4K Game\n\nWaiting for audio\nand window focus."
+		return nil
+	}
+
 	g.down = down
 	if !focused {
 		g.down = [chart.LaneCount]bool{}
@@ -123,6 +133,12 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 			HasHit:        g.session.HasLastHit,
 			EmptyPresses:  state.stats.EmptyPresses,
 		})
+	}
+
+	if g.debugAudio && g.metronome != nil && (g.nextAudioHUD.IsZero() || !wall.Before(g.nextAudioHUD)) {
+		position := g.metronome.Position()
+		g.audioHUD = fmt.Sprintf("AUDIO (reference)\nPosition %+.3fs\nClock-audio %+.1fms\nPlayer buffer %dms", position.Seconds(), float64(g.session.Now-position)/float64(time.Millisecond), metronome.PlayerBuffer/time.Millisecond)
+		g.nextAudioHUD = wall.Add(250 * time.Millisecond)
 	}
 
 	return nil
@@ -161,6 +177,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 	// Keep the line in front of the wall even at full coverage.
 	vector.FillRect(screen, laneLeft, judgeY-1, laneWidth*chart.LaneCount, 2, color.White, false)
 	ebitenutil.DebugPrint(screen, g.hud)
+	if g.debugAudio {
+		ebitenutil.DebugPrintAt(screen, g.audioHUD, laneLeft+laneWidth*chart.LaneCount+8, 140)
+	}
 	if g.inputDebug != nil {
 		ebitenutil.DebugPrintAt(screen, g.inputDebug.Text(), laneLeft+laneWidth*chart.LaneCount+8, 0)
 	}
@@ -178,6 +197,8 @@ func main() {
 	keysText := flag.String("keys", "D,F,J,K", "four distinct letter keys in lane order")
 	tps := flag.Int("tps", inputdebug.DefaultTPS, "update target: 60, 120, or 240")
 	debugInput := flag.Bool("debug-input", false, "show TPS/FPS and input judgement diagnostics")
+	sound := flag.String("metronome-sound", metronome.DefaultSound, "metronome: switch8, switch19, switch29, glass_002, pluck_001")
+	debugAudio := flag.Bool("debug-audio", false, "show reference audio position and clock delta (not physical latency)")
 	flag.Parse()
 	if err := configureTPS(*tps); err != nil {
 		log.Fatal(err)
@@ -203,6 +224,10 @@ func main() {
 		log.Fatal(err)
 	}
 	g.keys = keys
+	if err := g.enableMetronome(*sound, *bpm); err != nil {
+		log.Fatal(err)
+	}
+	g.debugAudio = *debugAudio
 	if *debugInput {
 		debug, err := inputdebug.NewHUD(*tps)
 		if err != nil {
@@ -214,7 +239,9 @@ func main() {
 	ebiten.SetWindowTitle("4K Game")
 	// Receive focus changes even while unfocused; the game clock freezes explicitly.
 	ebiten.SetRunnableOnUnfocused(true)
-	if err := ebiten.RunGame(g); err != nil {
+	err = ebiten.RunGame(g)
+	g.metronome.Close()
+	if err != nil {
 		log.Fatal(err)
 	}
 }
