@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/play"
 )
 
@@ -40,6 +41,10 @@ func (g *audioBackendCheck) Update() error {
 	}
 	if g.began.IsZero() {
 		g.began = wall
+		measurement := g.metronome.DiagnosticSnapshot().Initial
+		if !measurement.Valid || measurement.Wall != wall || g.session.Now != -g.session.Timeline.Preparation {
+			return fmt.Errorf("initial Play did not preserve pre-command Clock reference")
+		}
 	}
 	if !focused {
 		if !g.sawPause {
@@ -56,6 +61,13 @@ func (g *audioBackendCheck) Update() error {
 		g.sawPCM = true
 	}
 	if wall.Sub(g.began) > 400*time.Millisecond && g.sawPCM && g.sawResume {
+		snapshot := g.metronome.DiagnosticSnapshot()
+		if snapshot.EventCount != 3 || !snapshot.Initial.Valid || !snapshot.LastPause.Valid || !snapshot.LastResume.Valid || !snapshot.BaselineValid || !snapshot.Running {
+			return fmt.Errorf("audio event/segment diagnostics incomplete: %+v", snapshot)
+		}
+		if !strings.Contains(g.inputDebug.Text(), "INPUT DEBUG") {
+			return fmt.Errorf("combined input diagnostics absent")
+		}
 		if !strings.Contains(g.audioHUD, "Clock-audio") {
 			return fmt.Errorf("audio diagnostics not updated")
 		}
@@ -73,6 +85,7 @@ func TestAudioBackend(t *testing.T) {
 	}
 	defer g.metronome.Close()
 	g.debugAudio = true
+	g.inputDebug, _ = inputdebug.NewHUD(inputdebug.DefaultTPS)
 	ebiten.SetRunnableOnUnfocused(true)
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	wrapper := &audioBackendCheck{game: g, deadline: time.Now().Add(10 * time.Second)}

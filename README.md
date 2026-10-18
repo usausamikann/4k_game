@@ -1,7 +1,7 @@
 # 4K Game
 
 Go + Ebitengine で作る固定4レーンのリズムゲーム。
-現在は実装計画の Step 5 まで実装済み。単一パターンの JSON 読み込み・検証と
+現在は実装計画の Step 5 と、Step 5.1 の音声同期診断まで実装済み。単一パターンの JSON 読み込み・検証と
 BPM による時刻変換を `internal/chart`、判定エンジンを `internal/judge` に用意している。
 アプリは 640 × 480 のウィンドウに4レーン・判定線と流下する TAP ノーツを表示する。
 ゲーム時計と描画対象管理は GUI 非依存の `internal/play` に用意している。
@@ -426,8 +426,8 @@ PCMは単一の連続 `io.Reader` が必要分だけ生成し、Playerも一つ�
 
 ### 時計との対応と停止・復帰
 
-音声デバイスのReadyとフォーカスを待ち、Player.Playの呼出時刻と同じ単調時計の基準で
-Sessionを開始する。ストリーム位置0を `-Timeline.Preparation` に対応付ける。
+音声デバイスのReadyとフォーカスを待ち、UpdateがPlay呼び出し前に取得した `wall` を
+SessionのClockの初期基準にする。Play完了時刻にClockを合わせる方式ではない。ストリーム位置0を `-Timeline.Preparation` に対応付ける。
 8拍目の絶対サンプル位置が譜面時刻0へ最大0.5サンプル（48kHzで約10.4µs）とDuration丸め（1ns未満）の量子化差で対応する。
 COUNT内のTimelineとの対応も、ストリーム起点を共通にして1サンプル以内となる。
 A/B、スクロール速度、SUDDEN+、TPSを音声BPMやサンプル位置へ適用しない。
@@ -468,6 +468,72 @@ Step 5のクラウド検証（Go 1.26.9 / Linux）は、通常・graphicsテス�
 レース検出付きテスト（文カバレッジ92.3%）、Xvfb＋ALSA nullの音声統合テスト
 （レース検出付き）、`go vet`、Linux/Windows amd64ビルド、`go mod verify` が成功。
 元の5音源バイナリと既存memo、判定・入力・時計のソースは変更していない。
+
+
+## 音声同期の診断（Step 5.1）
+
+`-debug-audio` を付けると、右側のレーン外に次を表示する。
+`-debug-input` との併用も可能で、入力診断は上部、音声診断はその下に表示する。
+
+| 表示 | 意味 |
+| --- | --- |
+| Clock | A/B補正前のゲームClock時刻（秒） |
+| Pos | `Player.Position() - Preparation`（秒） |
+| Clock-audio | `Clock - Pos`（符号付きms）。正ならClockの値が先行 |
+| Delta | 現在の差から、連続再生区間の初回サンプルの差を引いた値（ms） |
+| Segment | 現区間の初回サンプルからの経過秒。停止中は凍結し、再開後は取り直す |
+| Initial Play | 初回 `Play()` の所要時間（ms） |
+| Last Resume | 直近のフォーカス復帰時の `Play()` の所要時間（ms） |
+| Last Pause | 直近のフォーカス喪失時の `PauseAndStopReading()` の所要時間（ms） |
+| Initial begin-wall / end-wall | 初回Play呼び出し開始／終了と、そのUpdateの `wall` との差（ms） |
+| Player buffer | Playerへ要求するバッファ長（50ms） |
+
+未発生イベントや未取得の区間基準は `N/A`。実測0msと未実行を区別する。
+初回Play・Pause・Resumeの既存の状態遷移でのみ、呼び出し直前／直後に `time.Now()` を取得し、
+単調時計成分を保った `time.Time.Sub` で所要時間やwallとの差を計算する。
+Pauseは読み取り完了待ちを含む呼び出し全体を測る。終了時のCloseはフォーカス停止の記録に含めない。
+追加のPlay/Pause操作は行わない。
+
+`Transport.DiagnosticSnapshot()` は、初回・直近Resume・直近Pauseの各呼び出し前後時刻とwall、
+直近イベント種別・件数、および直近の参考位置サンプルを値コピーで返す。
+記録順序は「呼び出し前時刻 → API呼び出し → 呼び出し後時刻 → イベント記録 → Session更新」。
+Sessionは従来どおり渡されたwallでClockの開始・停止・再開を処理し、計測値を利用しない。
+画面のbegin/end-wallは初回Playの値で、Resume/Pauseのwallとの差もSnapshotに保存する。
+
+Positionサンプリングと文字列更新は最大4回/秒で、結果文字列を再利用する。
+復帰時に区間基準を無効化し、次の定期サンプルで新しい基準を取る。
+停止時間は区間経過時間へ加算しない。イベント記録は固定個数で、履歴を無制限に蓄積しない。
+診断無効時は前後時刻取得・定期Positionサンプリング・診断文字列生成を行わない。
+
+これらは**API呼び出し時間と推定再生位置の参考値**であり、実出音遅延を直接測定しない。
+Play区間の中点をPCM出力開始と仮定しない。Positionの更新間隔・推定上の揺れや
+バッファ遅延が差に影響するため、Deltaの変化だけで音声デバイスのクロックドリフトを証明できない。
+Clockの基準変更、Seek、速度補正、Positionへの追従など、同期方式の変更は行っていない。
+
+### Windows実機での確認
+
+PowerShellでリポジトリのルートから実行する。
+
+```powershell
+go build -o bin/4k_game.exe .
+.\bin\4k_game.exe -bpm 180 -debug-audio
+.\bin\4k_game.exe -bpm 220 -debug-audio -debug-input
+```
+
+BPM180/220の起動直後にInitial Playとbegin/end-wallを記録する。
+Alt+Tabで停止・復帰し、Last Pause/Resume、停止中のSegmentの凍結、復帰後のDelta基準リセットを確認する。
+1〜5分連続再生してClock-audioとDeltaの変化を観察し、`-debug-input` 併用時の表示と負荷も比較する。
+Windows実機の数値・実出音遅延・長時間の挙動・CPU使用率はクラウドのテストでは検証できない。
+
+単体テストではFake Playerと注入した時刻を使い、実時間Sleepに依存せず、Ready/フォーカス待ち、
+初回一度のみ、停止・再開の測定、区間の凍結／基準リセット、4Hz制限、無効時の非計測、N/Aを検証する。
+
+Step 5.1のクラウド検証（Go 1.26.9 / Linux）は、`go test ./...`、Xvfbでの
+`go test -tags=graphics ./...`、`go test -race ./internal/...`、`go vet ./...`、
+Linux／Windows amd64ビルドが成功。Xvfb＋ALSA nullの音声統合テストもレース検出付きで成功し、
+初回wallの保持、初回／停止／再開イベントと区間基準、入力診断との併用を確認した。
+null出力での成功は、Windows実機の出音や同期精度を測定したことを意味しない。
+
 
 
 ## 実装計画
