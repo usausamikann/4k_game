@@ -53,18 +53,17 @@ type hudState struct {
 	count  int
 }
 type game struct {
-	session      *play.Session
-	scroll       play.Scroll
-	keys         [chart.LaneCount]ebiten.Key
-	sudden       play.Sudden
-	hud          string
-	hudState     hudState
-	down         [chart.LaneCount]bool
-	inputDebug   *inputdebug.HUD
-	metronome    *metronome.Transport
-	debugAudio   bool
-	audioHUD     string
-	nextAudioHUD time.Time
+	session    *play.Session
+	scroll     play.Scroll
+	keys       [chart.LaneCount]ebiten.Key
+	sudden     play.Sudden
+	hud        string
+	hudState   hudState
+	down       [chart.LaneCount]bool
+	inputDebug *inputdebug.HUD
+	metronome  *metronome.Transport
+	debugAudio bool
+	audioHUD   string
 }
 
 func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.Sudden) (*game, error) {
@@ -94,7 +93,10 @@ func (g *game) Update() error {
 	return g.updateAt(time.Now(), ebiten.IsFocused(), down)
 }
 func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool) error {
-	if g.metronome != nil && !g.metronome.Update(focused) {
+	if g.debugAudio && g.metronome != nil {
+		g.metronome.EnableDiagnostics()
+	}
+	if g.metronome != nil && !g.metronome.UpdateAt(wall, focused) {
 		g.hud = "4K Game\n\nWaiting for audio\nand window focus."
 		return nil
 	}
@@ -135,10 +137,8 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 		})
 	}
 
-	if g.debugAudio && g.metronome != nil && (g.nextAudioHUD.IsZero() || !wall.Before(g.nextAudioHUD)) {
-		position := g.metronome.Position()
-		g.audioHUD = fmt.Sprintf("AUDIO (reference)\nPosition %+.3fs\nClock-audio %+.1fms\nPlayer buffer %dms", position.Seconds(), float64(g.session.Now-position)/float64(time.Millisecond), metronome.PlayerBuffer/time.Millisecond)
-		g.nextAudioHUD = wall.Add(250 * time.Millisecond)
+	if g.debugAudio && g.metronome != nil {
+		g.audioHUD = g.metronome.DiagnosticText(wall, g.session.Now)
 	}
 
 	return nil
