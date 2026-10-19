@@ -1,6 +1,8 @@
 package play
 
 import (
+	"encoding/binary"
+	"math"
 	"testing"
 	"time"
 
@@ -23,13 +25,13 @@ func TestSessionKeysoundTransitions(t *testing.T) {
 		for i := range pcm {
 			pcm[i] = .5
 		}
-		mixer, err := sound.NewKeyMixer(settings, func(string) (*sound.Clip, error) { return &sound.Clip{PCM: pcm, Peak: .5}, nil })
+		keyStream, err := sound.NewKeyStream(settings, func(string) (*sound.Clip, error) { return &sound.Clip{PCM: pcm, Peak: .5}, nil })
 		if err != nil {
 			t.Fatal(err)
 		}
 		count := 0
 		s.OnInput = func(events []judge.Event) {
-			mixer.HandleEvents(events)
+			keyStream.HandleEvents(events)
 			for _, e := range events {
 				if e.Kind == judge.Press {
 					count++
@@ -116,4 +118,39 @@ func TestKeysoundsIndependentOfJudgement(t *testing.T) {
 	if presses != 2 || s.Last.State != judge.Miss {
 		t.Fatal("automatic miss emitted press", s.Last)
 	}
+}
+
+// Exercise the real Tracker -> Session callback -> KeyStream path. Two presses
+// in one Update must select a chord, while a later press replaces that chord.
+func TestSessionChordBatchAndCut(t *testing.T) {
+	s := makeSession(t, nil, Offsets{})
+	settings := sound.DefaultSettings()
+	settings.KeySoundMode = "unified"
+	settings.KeySoundVolume = 100
+	stream, err := sound.NewKeyStream(settings, func(string) (*sound.Clip, error) { return &sound.Clip{PCM: []float32{.25, .25, .5, .5, .75, .75}}, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.OnInput = stream.HandleEvents
+	start := time.Now()
+	updateSession(t, s, start, true, [4]bool{})
+	updateSession(t, s, start.Add(time.Millisecond), true, [4]bool{true, false, true})
+	read := func(want float64) {
+		t.Helper()
+		var p [8]byte
+		if n, e := stream.Read(p[:]); n != 8 || e != nil {
+			t.Fatal(n, e)
+		}
+		got := float64(math.Float32frombits(binary.LittleEndian.Uint32(p[:4])))
+		if math.Abs(got-want) > 1e-7 {
+			t.Fatal("wrong chord/sample", got, want)
+		}
+	}
+	read(.7 * math.Tanh(.5*.5/.7))
+	// Held keys and releases do not restart the already-playing chord.
+	updateSession(t, s, start.Add(2*time.Millisecond), true, [4]bool{true, false, true})
+	updateSession(t, s, start.Add(3*time.Millisecond), true, [4]bool{})
+	read(.7 * math.Tanh(1*.5/.7))
+	updateSession(t, s, start.Add(4*time.Millisecond), true, [4]bool{false, true})
+	read(.7 * math.Tanh(.25*.5/.7))
 }
