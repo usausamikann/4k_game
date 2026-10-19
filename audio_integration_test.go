@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	metronome "github.com/usausamikann/4k_game/internal/audio"
 	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/play"
 )
@@ -80,10 +81,13 @@ func TestAudioBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := g.enableMetronome("glass_002", 180); err != nil {
+	settings := metronome.DefaultSettings()
+	settings.KeySoundMode = "unified"
+	if err := g.enableAudio("glass_002", 180, settings); err != nil {
 		t.Fatal(err)
 	}
 	defer g.metronome.Close()
+	defer g.keyPlayback.Close()
 	g.debugAudio = true
 	g.inputDebug, _ = inputdebug.NewHUD(inputdebug.DefaultTPS)
 	ebiten.SetRunnableOnUnfocused(true)

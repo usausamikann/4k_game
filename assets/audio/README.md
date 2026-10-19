@@ -19,3 +19,14 @@ All five binaries were added in PR #9 and remain unchanged. `assets.go` embeds t
 License reference: https://creativecommons.org/publicdomain/zero/1.0/ . Filenames and explicit sound IDs are authoritative; embedded TITLE tags are not used.
 
 See `memo/4k_game_step5_metronome_handoff_20261018.md` for the actual Codex implementation requirements. No downbeat accent and no keysounds in Step 5.
+
+## Step 5.5 keysounds
+
+`bong_001.ogg`, `drop_002.ogg`, `drop_004.ogg`, `glass_005.ogg`,
+`toggle_001.ogg` are user-supplied processed Kenney UI Audio assets
+(https://kenney.nl/assets/ui-audio), CC0 1.0
+(https://creativecommons.org/publicdomain/zero/1.0/).
+The supplied files have volume adjustment and trailing-silence trimming; they
+are embedded unchanged from `4k_game_step55_selected_5_ogg.zip`.
+These IDs are separate from the metronome candidates. Runtime conversion to
+48kHz stereo does not apply the metronome's leading-attack trim to keysounds.

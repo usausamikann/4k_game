@@ -1,5 +1,5 @@
 // Package audio implements bounded metronome PCM generation and playback control.
-// It does not handle judgement, keysounds, or visual offsets.
+// It does not handle judgement or visual offsets.
 package audio
 
 import (
@@ -57,6 +57,10 @@ func load(files fs.FS, id string) (*Clip, error) {
 // Decode accepts mono/stereo Ogg Vorbis and normalizes once to 48kHz stereo F32.
 // Decoder output is capped, so a malformed or unexpectedly huge file is rejected.
 func Decode(src io.Reader) (*Clip, error) {
+	return decode(src, true)
+}
+
+func decode(src io.Reader, trimAttack bool) (*Clip, error) {
 	decoded, err := vorbis.DecodeF32(src)
 	if err != nil {
 		return nil, err
@@ -92,7 +96,10 @@ func Decode(src io.Reader) (*Clip, error) {
 			break
 		}
 	}
-	trim := max(0, attack-SampleRate/1000)
+	trim := 0
+	if trimAttack {
+		trim = max(0, attack-SampleRate/1000)
+	}
 	pcm := append([]float32(nil), samples[trim*2:]...)
 	// Only trimmed clips need a short edge fade; it ends before significant attack.
 	if trim > 0 {

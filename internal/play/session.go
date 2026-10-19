@@ -23,10 +23,12 @@ type Session struct {
 	HasLastHit               bool
 	HasLast                  bool
 	Now, VisualNow, JudgeNow time.Duration
-	engine                   *judge.Engine
-	tracker                  input.Tracker
-	events                   []judge.Event
-	changes                  []judge.Result
+	// OnInput receives borrowed Tracker events once per Update; do not retain them.
+	OnInput func([]judge.Event)
+	engine  *judge.Engine
+	tracker input.Tracker
+	events  []judge.Event
+	changes []judge.Result
 }
 
 func NewSession(notes []chart.ScheduledNote, bpm float64, scroll Scroll, offsets Offsets) (*Session, error) {
@@ -74,6 +76,9 @@ func (s *Session) UpdateAt(wall time.Time, focused bool, down [chart.LaneCount]b
 		return err
 	}
 	s.events = s.tracker.Sample(focused, down, judgement, s.events)
+	if s.OnInput != nil {
+		s.OnInput(s.events)
+	}
 	if err := s.engine.Process(s.events, judgement); err != nil {
 		return err
 	}

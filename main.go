@@ -53,17 +53,18 @@ type hudState struct {
 	count  int
 }
 type game struct {
-	session    *play.Session
-	scroll     play.Scroll
-	keys       [chart.LaneCount]ebiten.Key
-	sudden     play.Sudden
-	hud        string
-	hudState   hudState
-	down       [chart.LaneCount]bool
-	inputDebug *inputdebug.HUD
-	metronome  *metronome.Transport
-	debugAudio bool
-	audioHUD   string
+	session     *play.Session
+	scroll      play.Scroll
+	keys        [chart.LaneCount]ebiten.Key
+	sudden      play.Sudden
+	hud         string
+	hudState    hudState
+	down        [chart.LaneCount]bool
+	inputDebug  *inputdebug.HUD
+	metronome   *metronome.Transport
+	keyPlayback *metronome.KeyPlayback
+	debugAudio  bool
+	audioHUD    string
 }
 
 func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.Sudden) (*game, error) {
@@ -97,10 +98,20 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 		g.metronome.EnableDiagnostics()
 	}
 	if g.metronome != nil && !g.metronome.UpdateAt(wall, focused) {
+		if g.keyPlayback != nil {
+			if err := g.keyPlayback.SetActive(false); err != nil {
+				return err
+			}
+		}
 		g.hud = "4K Game\n\nWaiting for audio\nand window focus."
 		return nil
 	}
 
+	if g.keyPlayback != nil {
+		if err := g.keyPlayback.SetActive(focused); err != nil {
+			return err
+		}
+	}
 	g.down = down
 	if !focused {
 		g.down = [chart.LaneCount]bool{}
@@ -199,7 +210,16 @@ func main() {
 	debugInput := flag.Bool("debug-input", false, "show TPS/FPS and input judgement diagnostics")
 	sound := flag.String("metronome-sound", metronome.DefaultSound, "metronome: switch8, switch19, switch29, glass_002, pluck_001")
 	debugAudio := flag.Bool("debug-audio", false, "show reference audio position and clock delta (not physical latency)")
+	keyMode := flag.String("keysound-mode", "off", "keysounds: off, unified, per-lane")
+	keySound := flag.String("keysound-sound", "drop_002", "unified keysound ID")
+	keyLanes := flag.String("keysound-lanes", "drop_002,drop_002,drop_002,drop_002", "four keysound IDs in lane order")
+	keyVolume := flag.Int("keysound-volume", 50, "keysound volume: 0..100 percent")
+	metVolume := flag.Int("metronome-volume", 50, "metronome volume: 0..100 percent")
 	flag.Parse()
+	audioSettings, err := metronome.ParseSettings(*keyMode, *keySound, *keyLanes, *keyVolume, *metVolume)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if err := configureTPS(*tps); err != nil {
 		log.Fatal(err)
 	}
@@ -224,7 +244,7 @@ func main() {
 		log.Fatal(err)
 	}
 	g.keys = keys
-	if err := g.enableMetronome(*sound, *bpm); err != nil {
+	if err := g.enableAudio(*sound, *bpm, audioSettings); err != nil {
 		log.Fatal(err)
 	}
 	g.debugAudio = *debugAudio
@@ -241,6 +261,11 @@ func main() {
 	ebiten.SetRunnableOnUnfocused(true)
 	err = ebiten.RunGame(g)
 	g.metronome.Close()
+	if g.keyPlayback != nil {
+		if closeErr := g.keyPlayback.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
