@@ -87,22 +87,43 @@ xvfb-run -a -s '-screen 0 640x480x24 -nolisten tcp' go run -mod=readonly .
 ## パターン JSON と時刻変換
 
 [`patterns/sample.json`](patterns/sample.json) が実際に読み込めるサンプル。
-4レーン（0～3）、4/4拍子、1拍 = 960tick、1小節 = 3840tick を使用する。
+4レーン（0～3）、四分音符基準の1拍 = 960tick を使用する。
+1パターンの元の長さは1拍固定で、小節の拍子には依存しない。
 
 ```json
 {
   "name": "sample",
-  "length_ticks": 3840,
-  "notes": [{"lane": 0, "tick": 0}, {"lane": 1, "tick": 480}]
+  "length_ticks": 960,
+  "time_scale": 0,
+  "notes": [{"lane": 0, "tick": 0}, {"lane": 1, "tick": 240},
+            {"lane": 2, "tick": 480}, {"lane": 3, "tick": 720}]
 }
 ```
 
 `name`（文字列）、`length_ticks`（整数）、`notes`（配列）と、各ノーツの
 `lane`・`tick`（整数）は必須で、null は不可。未知のフィールドや末尾の別 JSON
-もエラーになる。空のノーツ配列は休符小節として許可する。
-長さは 3840tick 固定、ノーツは `0 <= tick < 3840` に限定する。
+もエラーになる。空のノーツ配列は休符パターンとして許可する。
+`length_ticks` は960のみ許容し、元のノーツ位置は `0 <= tick < 960` に限定する。
+旧形式の3840tickのパターンは自動変換せず、1拍単位のデータへ明示的に更新する。
 同一レーン・同一tick の重複は拒否し、別レーンの同時tick は許可する。
 読み込み時に tick 昇順、同tick はレーン昇順で整列する。
+
+`time_scale`（Goでは `Pattern.TimeScale`）は **実際の速度倍率−1** を表す整数。
+現段階では0と1のみ許容する。JSONで省略した場合も、Goのゼロ値も0（通常速度）。
+明示的な0は有効だが、null・負数・2以上・整数以外はエラーにする。
+
+| time_scale | 速度倍率 | 実効長 | 元tick 0,240,480,720 の実効tick |
+| --- | --- | --- | --- |
+| 0 | 1倍 | 960tick | 0,240,480,720 |
+| 1 | 2倍密度 | 480tick | 0,120,240,360 |
+
+実効tick・実効長は元の値を `time_scale + 1` で割って得る。
+割り切れないtickは丸めずエラーにする（例：`time_scale=1` のtick 1や959）。
+tick 959は通常速度なら有効、960はどちらでも範囲外。
+JSONと読み込み後の `Note.Tick`・`LengthTicks` は元の値を保持し、Schedule時に変換する。
+将来の値2（3倍密度）などへの拡張に備え、有効値の検証と整数tick変換は分離している。
+BPMは従来どおり四分音符のBPM。`-speed` は画面のスクロール速度であり独立している。
+Clock、4 COUNT → 4 SILENT → PLAY、A/B、中点境界、判定幅、TPSには作用しない。
 
 リポジトリ内の Go コードからは次のように利用できる（`internal` パッケージ）。
 
@@ -122,7 +143,14 @@ if err != nil {
 相対ファイルパスは実行時の作業ディレクトリを基準にする。
 `Pattern` の `Note.Tick` はパターン内の相対tick。
 `Schedule` は原本を変更せず、単一パターンを絶対tick 0 から配置した独立の配列を返す。
+`AbsoluteTick`・`Time` には変換後の実効tick・時刻を入れる。
 ID は整列後の順序で 0 から割り当て、入力順に依存しない。
+`chart.EffectiveLengthTicks(pattern)` は実効長（tick）、
+`chart.EndTime(pattern, bpm)` は絶対tick 0から配置した場合の排他的な終了時刻を返す。
+どちらもパターンを検証し、空パターンにも適用できる。
+将来の連結では末尾ノーツではなく、この実効長を次パターンの開始オフセットに使う。
+`Schedule` は終了時刻がDurationに収まることも確認する（空パターンも同様）。
+終了画面・リトライ・パターン連結は今回追加しない。
 直接 Go で作った Pattern も `chart.Validate` または `Schedule` で検証できる。
 
 時刻は `tick × 60 / (BPM × 960)` 秒を各tickから直接計算する。
@@ -130,7 +158,8 @@ ID は整列後の順序で 0 から割り当て、入力順に依存しない�
 丸めた1tickの時間を加算しない。BPM は正の有限な `float64` のみ許可する。
 計算ではその `float64` 値を正確な有理数として扱い、中間演算のオーバーフローと
 整数tickの精度損失を避ける。Duration に収まらない結果はエラーになる。
-`chart.TickToTime` は将来の絶対tickも扱えるが、圧縮・連結の機能はまだ持たない。
+`chart.TickToTime` 自体はスケールに依存せず、将来の絶対tickも扱える。
+ノーツも終了位置も、実効tickを直接 `TickToTime` に渡して丸める。
 BPM180 の 480／960／3840tick はそれぞれ
 166,666,667／333,333,333／1,333,333,333ns。
 

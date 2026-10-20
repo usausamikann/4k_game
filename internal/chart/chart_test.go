@@ -15,7 +15,7 @@ func TestLoadSample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Pattern{Name: "sample", LengthTicks: 3840, Notes: []Note{{0, 0}, {1, 480}, {2, 960}, {3, 1440}, {0, 1920}}}
+	want := Pattern{Name: "sample", LengthTicks: 960, Notes: []Note{{0, 0}, {1, 240}, {2, 480}, {3, 720}}}
 	if !reflect.DeepEqual(p, want) {
 		t.Fatalf("pattern = %#v, want %#v", p, want)
 	}
@@ -23,7 +23,7 @@ func TestLoadSample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantTimes := []time.Duration{0, 166666667, 333333333, 500000000, 666666667}
+	wantTimes := []time.Duration{0, 83333333, 166666667, 250000000}
 	for i, n := range notes {
 		want := ScheduledNote{ID: int64(i), Lane: p.Notes[i].Lane, AbsoluteTick: p.Notes[i].Tick, Time: wantTimes[i]}
 		if n != want {
@@ -34,28 +34,28 @@ func TestLoadSample(t *testing.T) {
 
 func TestDecodeValidation(t *testing.T) {
 	tests := []struct{ name, input, errText string }{
-		{"simultaneous", `{"name":"chord","length_ticks":3840,"notes":[{"lane":3,"tick":960},{"lane":0,"tick":960}]}`, ""},
-		{"empty", `{"name":"empty","length_ticks":3840,"notes":[]}`, ""},
-		{"last tick", `{"name":"last","length_ticks":3840,"notes":[{"lane":3,"tick":3839}]}`, ""},
-		{"duplicate", `{"name":"x","length_ticks":3840,"notes":[{"lane":0,"tick":0},{"lane":1,"tick":960},{"lane":0,"tick":0}]}`, "duplicate note"},
-		{"negative lane", `{"name":"x","length_ticks":3840,"notes":[{"lane":-1,"tick":0}]}`, "lane must"},
-		{"large lane", `{"name":"x","length_ticks":3840,"notes":[{"lane":4,"tick":0}]}`, "lane must"},
-		{"negative tick", `{"name":"x","length_ticks":3840,"notes":[{"lane":0,"tick":-1}]}`, "tick must"},
-		{"end tick", `{"name":"x","length_ticks":3840,"notes":[{"lane":0,"tick":3840}]}`, "tick must"},
+		{"simultaneous", `{"name":"chord","length_ticks":960,"notes":[{"lane":3,"tick":480},{"lane":0,"tick":480}]}`, ""},
+		{"empty", `{"name":"empty","length_ticks":960,"notes":[]}`, ""},
+		{"last tick", `{"name":"last","length_ticks":960,"notes":[{"lane":3,"tick":959}]}`, ""},
+		{"duplicate", `{"name":"x","length_ticks":960,"notes":[{"lane":0,"tick":0},{"lane":1,"tick":480},{"lane":0,"tick":0}]}`, "duplicate note"},
+		{"negative lane", `{"name":"x","length_ticks":960,"notes":[{"lane":-1,"tick":0}]}`, "lane must"},
+		{"large lane", `{"name":"x","length_ticks":960,"notes":[{"lane":4,"tick":0}]}`, "lane must"},
+		{"negative tick", `{"name":"x","length_ticks":960,"notes":[{"lane":0,"tick":-1}]}`, "tick must"},
+		{"end tick", `{"name":"x","length_ticks":960,"notes":[{"lane":0,"tick":960}]}`, "tick must"},
 		{"wrong length", `{"name":"x","length_ticks":1920,"notes":[]}`, "length_ticks must"},
 		{"zero length", `{"name":"x","length_ticks":0,"notes":[]}`, "length_ticks must"},
 		{"malformed", `{`, "decode JSON"},
-		{"fractional tick", `{"name":"x","length_ticks":3840,"notes":[{"lane":0,"tick":0.5}]}`, "decode JSON"},
-		{"overflow tick", `{"name":"x","length_ticks":3840,"notes":[{"lane":0,"tick":9223372036854775808}]}`, "decode JSON"},
-		{"missing tick", `{"name":"x","length_ticks":3840,"notes":[{"lane":0}]}`, "lane and tick are required"},
-		{"missing lane", `{"name":"x","length_ticks":3840,"notes":[{"tick":0}]}`, "lane and tick are required"},
-		{"null note", `{"name":"x","length_ticks":3840,"notes":[null]}`, "lane and tick are required"},
+		{"fractional tick", `{"name":"x","length_ticks":960,"notes":[{"lane":0,"tick":0.5}]}`, "decode JSON"},
+		{"overflow tick", `{"name":"x","length_ticks":960,"notes":[{"lane":0,"tick":9223372036854775808}]}`, "decode JSON"},
+		{"missing tick", `{"name":"x","length_ticks":960,"notes":[{"lane":0}]}`, "lane and tick are required"},
+		{"missing lane", `{"name":"x","length_ticks":960,"notes":[{"tick":0}]}`, "lane and tick are required"},
+		{"null note", `{"name":"x","length_ticks":960,"notes":[null]}`, "lane and tick are required"},
 		{"missing field", `{"name":"x","notes":[]}`, "are required"},
-		{"null notes", `{"name":"x","length_ticks":3840,"notes":null}`, "are required"},
+		{"null notes", `{"name":"x","length_ticks":960,"notes":null}`, "are required"},
 		{"null pattern", `null`, "are required"},
-		{"unknown field", `{"name":"x","length_ticks":3840,"notes":[],"typo":0}`, "unknown field"},
-		{"second object", `{"name":"x","length_ticks":3840,"notes":[]} {}`, "exactly one"},
-		{"trailing garbage", `{"name":"x","length_ticks":3840,"notes":[]} broken`, "trailing JSON"},
+		{"unknown field", `{"name":"x","length_ticks":960,"notes":[],"typo":0}`, "unknown field"},
+		{"second object", `{"name":"x","length_ticks":960,"notes":[]} {}`, "exactly one"},
+		{"trailing garbage", `{"name":"x","length_ticks":960,"notes":[]} broken`, "trailing JSON"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestDecodeValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tt.name == "simultaneous" && !reflect.DeepEqual(p.Notes, []Note{{0, 960}, {3, 960}}) {
+			if tt.name == "simultaneous" && !reflect.DeepEqual(p.Notes, []Note{{0, 480}, {3, 480}}) {
 				t.Fatalf("notes not sorted: %+v", p.Notes)
 			}
 		})
@@ -134,7 +134,7 @@ func TestInvalidConversion(t *testing.T) {
 		if _, err := TickToTime(960, bpm); err == nil {
 			t.Fatalf("accepted BPM %g", bpm)
 		}
-		if _, err := Schedule(Pattern{LengthTicks: 3840}, bpm); err == nil {
+		if _, err := Schedule(Pattern{LengthTicks: 960}, bpm); err == nil {
 			t.Fatalf("empty pattern accepted BPM %g", bpm)
 		}
 	}
@@ -149,26 +149,26 @@ func TestInvalidConversion(t *testing.T) {
 			t.Fatalf("expected duration overflow, got %v", err)
 		}
 	}
-	if _, err := Schedule(Pattern{LengthTicks: 3840, Notes: []Note{{0, 1}}}, math.SmallestNonzeroFloat64); err == nil {
+	if _, err := Schedule(Pattern{LengthTicks: 960, Notes: []Note{{0, 1}}}, math.SmallestNonzeroFloat64); err == nil {
 		t.Fatal("schedule accepted duration overflow")
 	}
 }
 
 func TestScheduleDeterminismAndIsolation(t *testing.T) {
-	p := Pattern{Name: "chord", LengthTicks: 3840, Notes: []Note{{3, 960}, {2, 0}, {0, 960}}}
+	p := Pattern{Name: "chord", LengthTicks: 960, Notes: []Note{{3, 480}, {2, 0}, {0, 480}}}
 	original := append([]Note(nil), p.Notes...)
 	got, err := Schedule(p, 120)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ScheduledNote{{0, 2, 0, 0}, {1, 0, 960, 500 * time.Millisecond}, {2, 3, 960, 500 * time.Millisecond}}
+	want := []ScheduledNote{{0, 2, 0, 0}, {1, 0, 480, 250 * time.Millisecond}, {2, 3, 480, 250 * time.Millisecond}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("schedule = %+v, want %+v", got, want)
 	}
 	if !reflect.DeepEqual(p.Notes, original) {
 		t.Fatal("modified original pattern")
 	}
-	reordered := Pattern{Name: p.Name, LengthTicks: 3840, Notes: []Note{{0, 960}, {3, 960}, {2, 0}}}
+	reordered := Pattern{Name: p.Name, LengthTicks: 960, Notes: []Note{{0, 480}, {3, 480}, {2, 0}}}
 	again, err := Schedule(reordered, 120)
 	if err != nil || !reflect.DeepEqual(got, again) {
 		t.Fatalf("order-dependent schedule: %+v, %v", again, err)
@@ -177,7 +177,7 @@ func TestScheduleDeterminismAndIsolation(t *testing.T) {
 	if !reflect.DeepEqual(p.Notes, original) {
 		t.Fatal("scheduled notes alias original notes")
 	}
-	empty, err := Schedule(Pattern{LengthTicks: 3840}, 120)
+	empty, err := Schedule(Pattern{LengthTicks: 960}, 120)
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("empty schedule = %+v, %v", empty, err)
 	}
@@ -186,9 +186,9 @@ func TestScheduleDeterminismAndIsolation(t *testing.T) {
 func TestDirectPatternValidation(t *testing.T) {
 	for _, p := range []Pattern{
 		{LengthTicks: 0},
-		{LengthTicks: 3840, Notes: []Note{{4, 0}}},
-		{LengthTicks: 3840, Notes: []Note{{0, 3840}}},
-		{LengthTicks: 3840, Notes: []Note{{0, 0}, {0, 0}}},
+		{LengthTicks: 960, Notes: []Note{{4, 0}}},
+		{LengthTicks: 960, Notes: []Note{{0, 960}}},
+		{LengthTicks: 960, Notes: []Note{{0, 0}, {0, 0}}},
 	} {
 		if err := Validate(p); err == nil {
 			t.Fatalf("accepted invalid pattern: %+v", p)
@@ -197,7 +197,7 @@ func TestDirectPatternValidation(t *testing.T) {
 			t.Fatalf("scheduled invalid pattern: %+v", p)
 		}
 	}
-	if err := Validate(Pattern{LengthTicks: 3840, Notes: []Note{{0, 0}, {1, 0}}}); err != nil {
+	if err := Validate(Pattern{LengthTicks: 960, Notes: []Note{{0, 0}, {1, 0}}}); err != nil {
 		t.Fatal(err)
 	}
 }

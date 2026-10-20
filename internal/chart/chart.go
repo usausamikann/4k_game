@@ -1,4 +1,4 @@
-// Package chart loads and schedules one-bar patterns without graphics dependencies.
+// Package chart loads and schedules one-beat patterns without graphics dependencies.
 package chart
 
 import (
@@ -25,7 +25,9 @@ type Note struct {
 type Pattern struct {
 	Name        string `json:"name"`
 	LengthTicks int64  `json:"length_ticks"`
-	Notes       []Note `json:"notes"`
+	// TimeScale is the speed multiplier minus one: 0 = normal, 1 = double density.
+	TimeScale int64  `json:"time_scale"`
+	Notes     []Note `json:"notes"`
 }
 
 // ScheduledNote is independent of the pattern definition and has no judgement state.
@@ -78,15 +80,22 @@ func Validate(pattern Pattern) error {
 }
 
 func validatedNotes(pattern Pattern) ([]Note, error) {
-	if pattern.LengthTicks != TicksPerBar {
-		return nil, fmt.Errorf("length_ticks must be %d: %d", TicksPerBar, pattern.LengthTicks)
+	if pattern.LengthTicks != TicksPerBeat {
+		return nil, fmt.Errorf("length_ticks must be %d: %d", TicksPerBeat, pattern.LengthTicks)
+	}
+	divisor, err := speedMultiplier(pattern.TimeScale)
+	if err != nil {
+		return nil, err
 	}
 	for i, note := range pattern.Notes {
 		if note.Lane < 0 || note.Lane >= LaneCount {
 			return nil, fmt.Errorf("note %d: lane must be 0..3: %d", i, note.Lane)
 		}
-		if note.Tick < 0 || note.Tick >= TicksPerBar {
-			return nil, fmt.Errorf("note %d: tick must be 0..%d: %d", i, TicksPerBar-1, note.Tick)
+		if note.Tick < 0 || note.Tick >= TicksPerBeat {
+			return nil, fmt.Errorf("note %d: tick must be 0..%d: %d", i, TicksPerBeat-1, note.Tick)
+		}
+		if _, err := effectiveTick(note.Tick, divisor); err != nil {
+			return nil, fmt.Errorf("note %d: %w", i, err)
 		}
 	}
 	notes := slices.Clone(pattern.Notes)
@@ -104,6 +113,45 @@ func validatedNotes(pattern Pattern) ([]Note, error) {
 	return notes, nil
 }
 
+// speedMultiplier keeps the supported scale policy separate from tick conversion.
+func speedMultiplier(scale int64) (int64, error) {
+	if scale < 0 || scale > 1 {
+		return 0, fmt.Errorf("time_scale must be 0 (normal) or 1 (double density): %d", scale)
+	}
+	return scale + 1, nil
+}
+
+func effectiveTick(tick, divisor int64) (int64, error) {
+	if tick%divisor != 0 {
+		return 0, fmt.Errorf("tick %d must be divisible by time_scale + 1 (%d)", tick, divisor)
+	}
+	return tick / divisor, nil
+}
+
+// EffectiveLengthTicks returns the validated pattern's exclusive end tick when
+// scheduled at tick zero, including for an empty pattern. Use this length, not
+// the last note, as the next pattern's start offset in future concatenation.
+func EffectiveLengthTicks(pattern Pattern) (int64, error) {
+	if err := Validate(pattern); err != nil {
+		return 0, err
+	}
+	divisor, err := speedMultiplier(pattern.TimeScale)
+	if err != nil {
+		return 0, err
+	}
+	return effectiveTick(pattern.LengthTicks, divisor)
+}
+
+// EndTime converts the exclusive end tick directly with TickToTime's rounding.
+// It exists even when the pattern has no notes and does not end gameplay.
+func EndTime(pattern Pattern, bpm float64) (time.Duration, error) {
+	length, err := EffectiveLengthTicks(pattern)
+	if err != nil {
+		return 0, err
+	}
+	return TickToTime(length, bpm)
+}
+
 // Schedule assigns zero-based IDs in tick/lane order without modifying pattern.
 func Schedule(pattern Pattern, bpm float64) ([]ScheduledNote, error) {
 	if err := validateBPM(bpm); err != nil {
@@ -113,13 +161,28 @@ func Schedule(pattern Pattern, bpm float64) ([]ScheduledNote, error) {
 	if err != nil {
 		return nil, err
 	}
+	divisor, err := speedMultiplier(pattern.TimeScale)
+	if err != nil {
+		return nil, err
+	}
+	length, err := effectiveTick(pattern.LengthTicks, divisor)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := TickToTime(length, bpm); err != nil {
+		return nil, fmt.Errorf("pattern end: %w", err)
+	}
 	result := make([]ScheduledNote, len(notes))
 	for i, note := range notes {
-		at, err := TickToTime(note.Tick, bpm)
+		tick, err := effectiveTick(note.Tick, divisor)
 		if err != nil {
 			return nil, fmt.Errorf("note %d: %w", i, err)
 		}
-		result[i] = ScheduledNote{ID: int64(i), Lane: note.Lane, AbsoluteTick: note.Tick, Time: at}
+		at, err := TickToTime(tick, bpm)
+		if err != nil {
+			return nil, fmt.Errorf("note %d: %w", i, err)
+		}
+		result[i] = ScheduledNote{ID: int64(i), Lane: note.Lane, AbsoluteTick: tick, Time: at}
 	}
 	return result, nil
 }
