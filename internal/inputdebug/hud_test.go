@@ -85,10 +85,12 @@ func TestHUDThrottlesTextAndAllocations(t *testing.T) {
 // TPS changes batch boundaries, never the actual timestamps of these artificial
 // events. This deliberately does not claim equivalent real keyboard sampling.
 func TestTimestampedJudgementsIndependentOfTPS(t *testing.T) {
-	pattern, err := chart.Load("../../patterns/sample.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Keep five outcomes (two PClean, Clean, Bad, Miss) in a one-beat fixture.
+	// The final hit must follow the fourth note's automatic MISS deadline.
+	pattern := chart.Pattern{Notes: []chart.Note{
+		{Lane: 0, Tick: 0}, {Lane: 1, Tick: 180}, {Lane: 2, Tick: 360},
+		{Lane: 3, Tick: 540}, {Lane: 0, Tick: 900},
+	}}
 	notes, err := chart.Schedule(pattern, 180)
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 package judge
 
 import (
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -290,22 +291,29 @@ func TestConfigAndExtremeTimes(t *testing.T) {
 }
 
 func TestChartScheduleIntegration(t *testing.T) {
-	p, err := chart.Load("../../patterns/sample.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	notes, err := chart.Schedule(p, 180)
-	if err != nil {
-		t.Fatal(err)
-	}
-	e := engine(t, notes...)
-	var events []Event
-	for _, n := range notes {
-		events = append(events, press(n.Lane, n.Time), release(n.Lane, n.Time+1))
-	}
-	process(t, e, notes[len(notes)-1].Time+ms(100), events...)
-	if s := e.Statistics(); s.PClean != len(notes) || s.Miss != 0 || s.Combo != len(notes) {
-		t.Fatalf("scheduled chart stats: %+v", s)
+	for _, scale := range []int64{0, 1} {
+		t.Run(fmt.Sprintf("scale%d", scale), func(t *testing.T) {
+			p, err := chart.Load("../../patterns/sample.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.TimeScale = scale
+			// Add a chord and repeated notes on one lane to exercise compressed midpoints.
+			p.Notes = []chart.Note{{Lane: 0, Tick: 0}, {Lane: 0, Tick: 240}, {Lane: 1, Tick: 240}, {Lane: 0, Tick: 480}, {Lane: 0, Tick: 720}}
+			notes, err := chart.Schedule(p, 180)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := engine(t, notes...)
+			var events []Event
+			for _, n := range notes {
+				events = append(events, press(n.Lane, n.Time), release(n.Lane, n.Time+1))
+			}
+			process(t, e, notes[len(notes)-1].Time+ms(100), events...)
+			if s := e.Statistics(); s.PClean != len(notes) || s.Miss != 0 || s.Combo != len(notes) {
+				t.Fatalf("scheduled chart stats: %+v", s)
+			}
+		})
 	}
 }
 

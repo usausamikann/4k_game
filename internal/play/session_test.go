@@ -234,3 +234,40 @@ func TestLastHitSurvivesLaterMiss(t *testing.T) {
 		t.Fatal("MISS replaced last Hit")
 	}
 }
+
+func TestOneBeatTimeScaleSession(t *testing.T) {
+	for _, scale := range []int64{0, 1} {
+		t.Run([]string{"normal", "double"}[scale], func(t *testing.T) {
+			p := chart.Pattern{TimeScale: scale, Notes: []chart.Note{
+				{Lane: 0, Tick: 0}, {Lane: 0, Tick: 240}, {Lane: 1, Tick: 240}, {Lane: 0, Tick: 480}, {Lane: 0, Tick: 720},
+			}}
+			notes, err := chart.Schedule(p, 180)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := makeSession(t, notes, Offsets{A: 10 * time.Millisecond, B: 5 * time.Millisecond})
+			if s.Timeline.Preparation != 2666666667 {
+				t.Fatalf("scale changed preparation: %v", s.Timeline.Preparation)
+			}
+			start := time.Now()
+			updateSession(t, s, start, true, [4]bool{})
+			for i := 0; i < len(notes); {
+				at := notes[i].Time
+				var down [4]bool
+				for i < len(notes) && notes[i].Time == at {
+					down[notes[i].Lane] = true
+					i++
+				}
+				wall := start.Add(s.Timeline.Preparation + at + s.Offsets.A + s.Offsets.B)
+				updateSession(t, s, wall, true, down)
+				if s.JudgeNow != at || s.VisualNow != at+s.Offsets.B {
+					t.Fatal("scale changed offset axes")
+				}
+				updateSession(t, s, wall.Add(time.Nanosecond), true, [4]bool{})
+			}
+			if stats := s.Statistics(); stats.PClean != len(notes) || stats.Miss != 0 || stats.EmptyPresses != 0 {
+				t.Fatalf("stats = %+v", stats)
+			}
+		})
+	}
+}

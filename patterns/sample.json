@@ -1,11 +1,10 @@
 {
   "name": "sample",
-  "length_ticks": 3840,
+  "time_scale": 0,
   "notes": [
-    {"lane": 0, "tick": 0},
-    {"lane": 1, "tick": 480},
-    {"lane": 2, "tick": 960},
-    {"lane": 3, "tick": 1440},
-    {"lane": 0, "tick": 1920}
+    {"lane": 0, "position": [0, 1]},
+    {"lane": 1, "position": [1, 4]},
+    {"lane": 2, "position": [1, 2]},
+    {"lane": 3, "position": [3, 4]}
   ]
 }
