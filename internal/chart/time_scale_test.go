@@ -28,7 +28,7 @@ func TestDecodeTimeScale(t *testing.T) {
 		{",\"time_scale\":{}", 0, "time_scale"},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
-			p, err := decode(strings.NewReader(`{"name":"x","length_ticks":960,"notes":[]` + tc.value + `}`))
+			p, err := decode(strings.NewReader(`{"name":"x","notes":[]` + tc.value + `}`))
 			if tc.errText != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.errText) {
 					t.Fatalf("error = %v, want %q", err, tc.errText)
@@ -46,7 +46,7 @@ func TestTimeScaleScheduleAndEnd(t *testing.T) {
 	for _, scale := range []int64{0, 1} {
 		for _, bpm := range []float64{120, 180, 120.5} {
 			t.Run(fmt.Sprintf("scale%d/bpm%g", scale, bpm), func(t *testing.T) {
-				p := Pattern{LengthTicks: 960, TimeScale: scale, Notes: []Note{{0, 720}, {0, 240}, {0, 0}, {1, 480}, {0, 480}}}
+				p := Pattern{TimeScale: scale, Notes: []Note{{0, 720}, {0, 240}, {0, 0}, {1, 480}, {0, 480}}}
 				original := append([]Note(nil), p.Notes...)
 				notes, err := Schedule(p, bpm)
 				if err != nil {
@@ -102,12 +102,11 @@ func TestTimeScaleValidationAcrossAPIs(t *testing.T) {
 		{-1, 0, "time_scale"}, {2, 0, "time_scale"}, {math.MaxInt64, 0, "time_scale"},
 	} {
 		t.Run(fmt.Sprintf("scale%d/tick%d", tc.scale, tc.tick), func(t *testing.T) {
-			p := Pattern{LengthTicks: 960, TimeScale: tc.scale, Notes: []Note{{0, tc.tick}}}
+			p := Pattern{TimeScale: tc.scale, Notes: []Note{{0, tc.tick}}}
 			_, scheduleErr := Schedule(p, 180)
 			_, lengthErr := EffectiveLengthTicks(p)
 			_, endErr := EndTime(p, 180)
-			_, loadErr := decode(strings.NewReader(fmt.Sprintf(`{"name":"x","length_ticks":960,"time_scale":%d,"notes":[{"lane":0,"tick":%d}]}`, tc.scale, tc.tick)))
-			for _, err := range []error{Validate(p), scheduleErr, lengthErr, endErr, loadErr} {
+			for _, err := range []error{Validate(p), scheduleErr, lengthErr, endErr} {
 				if tc.errText == "" {
 					if err != nil {
 						t.Fatal(err)
@@ -120,7 +119,7 @@ func TestTimeScaleValidationAcrossAPIs(t *testing.T) {
 	}
 	// Compression must retain chord legality and reject repeated lane/tick pairs.
 	for _, scale := range []int64{0, 1} {
-		p := Pattern{LengthTicks: 960, TimeScale: scale, Notes: []Note{{0, 240}, {0, 240}}}
+		p := Pattern{TimeScale: scale, Notes: []Note{{0, 240}, {0, 240}}}
 		if err := Validate(p); err == nil || !strings.Contains(err.Error(), "duplicate") {
 			t.Fatalf("duplicate error = %v", err)
 		}
@@ -128,7 +127,7 @@ func TestTimeScaleValidationAcrossAPIs(t *testing.T) {
 }
 
 func TestEndTimeConversionErrors(t *testing.T) {
-	p := Pattern{LengthTicks: 960}
+	p := Pattern{}
 	for _, bpm := range []float64{0, -1, math.NaN(), math.Inf(1), math.SmallestNonzeroFloat64} {
 		if _, err := EndTime(p, bpm); err == nil {
 			t.Fatalf("accepted BPM %g", bpm)
@@ -142,7 +141,7 @@ func TestEndTimeConversionErrors(t *testing.T) {
 	if _, err := Schedule(p, 1e-9); err == nil || !strings.Contains(err.Error(), "pattern end") {
 		t.Fatalf("end overflow = %v", err)
 	}
-	end, err := EndTime(Pattern{LengthTicks: 960, TimeScale: 1}, 120)
+	end, err := EndTime(Pattern{TimeScale: 1}, 120)
 	if err != nil || end != 250*time.Millisecond {
 		t.Fatalf("end = %v, %v", end, err)
 	}

@@ -87,7 +87,7 @@ func TestHUDThrottlesTextAndAllocations(t *testing.T) {
 func TestTimestampedJudgementsIndependentOfTPS(t *testing.T) {
 	// Keep five outcomes (two PClean, Clean, Bad, Miss) in a one-beat fixture.
 	// The final hit must follow the fourth note's automatic MISS deadline.
-	pattern := chart.Pattern{LengthTicks: 960, Notes: []chart.Note{
+	pattern := chart.Pattern{Notes: []chart.Note{
 		{Lane: 0, Tick: 0}, {Lane: 1, Tick: 180}, {Lane: 2, Tick: 360},
 		{Lane: 3, Tick: 540}, {Lane: 0, Tick: 900},
 	}}

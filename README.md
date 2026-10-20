@@ -93,20 +93,46 @@ xvfb-run -a -s '-screen 0 640x480x24 -nolisten tcp' go run -mod=readonly .
 ```json
 {
   "name": "sample",
-  "length_ticks": 960,
   "time_scale": 0,
-  "notes": [{"lane": 0, "tick": 0}, {"lane": 1, "tick": 240},
-            {"lane": 2, "tick": 480}, {"lane": 3, "tick": 720}]
+  "notes": [
+    {"lane": 0, "position": [0, 1]},
+    {"lane": 1, "position": [1, 4]},
+    {"lane": 2, "position": [1, 2]},
+    {"lane": 3, "position": [3, 4]}
+  ]
 }
 ```
 
-`name`（文字列）、`length_ticks`（整数）、`notes`（配列）と、各ノーツの
-`lane`・`tick`（整数）は必須で、null は不可。未知のフィールドや末尾の別 JSON
+元の長さは常に `TicksPerBeat = 960`。JSONの `length_ticks` とGoの
+`Pattern.LengthTicks` は廃止し、個別の長さを保持しない。
+ノーツのJSON位置は `tick` の代わりに `position: [a, b]` で指定する。
+旧 `length_ticks`・`tick` が含まれる場合は未知のフィールドとしてエラーにする。
+
+`name`（文字列）、`notes`（配列）と、各ノーツの `lane`（0～3の整数）・
+`position`（整数2個の配列）は必須で、null は不可。未知のフィールドや末尾の別 JSON
 もエラーになる。空のノーツ配列は休符パターンとして許可する。
-`length_ticks` は960のみ許容し、元のノーツ位置は `0 <= tick < 960` に限定する。
-旧形式の3840tickのパターンは自動変換せず、1拍単位のデータへ明示的に更新する。
-同一レーン・同一tick の重複は拒否し、別レーンの同時tick は許可する。
-読み込み時に tick 昇順、同tick はレーン昇順で整列する。
+
+`[a, b]` は1拍の開始を0、終了を1とした相対位置 `a/b` を表す。
+分子・分母は符号付き64bit整数の範囲とし、`b > 0`、`0 <= a < b` が必要。
+浮動小数点数・指数表記・文字列・null要素・要素数の違う配列は受け付けない。
+既約分数である必要はなく、分母にも特定の音符間隔による制限は設けない。
+
+| position | 元tick | 音符間隔の例 |
+| --- | --- | --- |
+| `[0, 1]` | 0 | 拍頭 |
+| `[1, 4]` | 240 | 16分 |
+| `[1, 6]` | 160 | 24分 |
+| `[1, 8]` | 120 | 32分 |
+| `[1, 3]` | 320 | 1/3拍 |
+| `[1, 2]` または `[2, 4]` | 480 | 1/2拍 |
+| `[1, 5]` | 192 | 1/5拍 |
+
+ロード時に `originalTick = 960 * a / b` を正確な整数演算で求め、
+割り切れなければ丸めずエラーにする（例：`[1, 7]`）。
+分子・分母を内部処理へ持ち込まず、Goの `Pattern.Notes` は元tickを `Note.Tick` に保持する。
+中間積は `math/big.Int` で計算してオーバーフローを防ぎ、int64範囲外の入力はロード時に拒否する。
+分数から元tickへ変換した後、同一レーン・同一tickの重複を拒否する。
+別レーンの同時tickは許可し、元tick昇順、同tickではレーン昇順に整列する。
 
 `time_scale`（Goでは `Pattern.TimeScale`）は **実際の速度倍率−1** を表す整数。
 現段階では0と1のみ許容する。JSONで省略した場合も、Goのゼロ値も0（通常速度）。
@@ -120,7 +146,9 @@ xvfb-run -a -s '-screen 0 640x480x24 -nolisten tcp' go run -mod=readonly .
 実効tick・実効長は元の値を `time_scale + 1` で割って得る。
 割り切れないtickは丸めずエラーにする（例：`time_scale=1` のtick 1や959）。
 tick 959は通常速度なら有効、960はどちらでも範囲外。
-JSONと読み込み後の `Note.Tick`・`LengthTicks` は元の値を保持し、Schedule時に変換する。
+例えば `[1, 4]` は元tick 240、`time_scale=1` なら実効tick 120になる。
+`[1, 64]` は元tick 15として通常速度で有効だが、2倍密度では7.5tickになるためエラー。
+分数→元tick変換と元tick→実効tick変換は分離し、Scheduleは `Note.Tick` を変更しない。
 将来の値2（3倍密度）などへの拡張に備え、有効値の検証と整数tick変換は分離している。
 BPMは従来どおり四分音符のBPM。`-speed` は画面のスクロール速度であり独立している。
 Clock、4 COUNT → 4 SILENT → PLAY、A/B、中点境界、判定幅、TPSには作用しない。

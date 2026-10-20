@@ -238,7 +238,7 @@ func TestLastHitSurvivesLaterMiss(t *testing.T) {
 func TestOneBeatTimeScaleSession(t *testing.T) {
 	for _, scale := range []int64{0, 1} {
 		t.Run([]string{"normal", "double"}[scale], func(t *testing.T) {
-			p := chart.Pattern{LengthTicks: 960, TimeScale: scale, Notes: []chart.Note{
+			p := chart.Pattern{TimeScale: scale, Notes: []chart.Note{
 				{Lane: 0, Tick: 0}, {Lane: 0, Tick: 240}, {Lane: 1, Tick: 240}, {Lane: 0, Tick: 480}, {Lane: 0, Tick: 720},
 			}}
 			notes, err := chart.Schedule(p, 180)

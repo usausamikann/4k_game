@@ -16,15 +16,15 @@ const (
 	TicksPerBar  int64 = 4 * TicksPerBeat
 )
 
-// Note uses a tick relative to the beginning of its pattern.
+// Note uses an original tick relative to the beginning of its pattern.
+// Load converts the external JSON position fraction into this integer tick.
 type Note struct {
-	Lane int   `json:"lane"`
-	Tick int64 `json:"tick"`
+	Lane int
+	Tick int64
 }
 
 type Pattern struct {
-	Name        string `json:"name"`
-	LengthTicks int64  `json:"length_ticks"`
+	Name string `json:"name"`
 	// TimeScale is the speed multiplier minus one: 0 = normal, 1 = double density.
 	TimeScale int64  `json:"time_scale"`
 	Notes     []Note `json:"notes"`
@@ -80,9 +80,6 @@ func Validate(pattern Pattern) error {
 }
 
 func validatedNotes(pattern Pattern) ([]Note, error) {
-	if pattern.LengthTicks != TicksPerBeat {
-		return nil, fmt.Errorf("length_ticks must be %d: %d", TicksPerBeat, pattern.LengthTicks)
-	}
 	divisor, err := speedMultiplier(pattern.TimeScale)
 	if err != nil {
 		return nil, err
@@ -139,7 +136,7 @@ func EffectiveLengthTicks(pattern Pattern) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return effectiveTick(pattern.LengthTicks, divisor)
+	return effectiveTick(TicksPerBeat, divisor)
 }
 
 // EndTime converts the exclusive end tick directly with TickToTime's rounding.
@@ -165,7 +162,7 @@ func Schedule(pattern Pattern, bpm float64) ([]ScheduledNote, error) {
 	if err != nil {
 		return nil, err
 	}
-	length, err := effectiveTick(pattern.LengthTicks, divisor)
+	length, err := effectiveTick(TicksPerBeat, divisor)
 	if err != nil {
 		return nil, err
 	}
