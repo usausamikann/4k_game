@@ -1,152 +1,92 @@
-/* Deterministic candidate generator for the 4K Game labeling draft.
+/* Exhaustive, mirror-reduced 1-beat (4 sixteenth-note slots) candidates.
+ * Each slot is REST or exactly one of 4 lanes. Nonempty = 5^4-1=624.
+ * Mirror pairs have no nonempty fixed points, so there are 312 orbits.
  * Browser: window.PatternLabelerGenerator; Node: require("./generator.js").
- * This samples candidate patterns; it does NOT enumerate all possible patterns.
  */
-(function (root) {
+(function(root) {
   "use strict";
-
-  const GRIDS = Object.freeze([4, 6, 8, 12, 16]);
   const DEFAULT_CATEGORIES = Object.freeze([
-    "stream-light",
-    "stream-middle",
-    "stream-dense",
-    "jack-light",
-    "jack-middle",
-    "jack-dense",
-    "other",
+    "stream-light", "stream-middle", "stream-dense",
+    "jack-light", "jack-middle", "jack-dense", "other"
   ]);
+  const SLOTS = 4;
+  const TOTAL = 312;
 
-  function gcd(a, b) {
-    while (b !== 0) {
-      const next = a % b;
-      a = b;
-      b = next;
+  function mirrorCode(code) {
+    if (!Number.isInteger(code) || code < 0 || code >= 625) throw new Error("invalid code");
+    let digits = code, mirrored = 0, multiplier = 1;
+    for (let i = 0; i < SLOTS; i++) {
+      const digit = digits % 5;
+      mirrored += (digit === 0 ? 0 : 5 - digit) * multiplier;
+      digits = Math.floor(digits / 5);
+      multiplier *= 5;
     }
-    return a;
+    return mirrored;
   }
 
-  // Each index has its own PRNG state: skipping duplicate candidates is stable.
-  function rngFor(seed, index) {
-    let state = ((seed >>> 0) ^ Math.imul(index + 1, 0x9e3779b1) ^ 0x85ebca6b) >>> 0;
-    return function () {
-      state = (state + 0x6d2b79f5) >>> 0;
-      let value = state;
-      value = Math.imul(value ^ (value >>> 15), value | 1);
-      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function randomInt(random, min, max) {
-    return min + Math.floor(random() * (max - min + 1));
-  }
-
-  function shuffled(random, length) {
-    const values = Array.from({ length: length }, (_, i) => i);
-    for (let i = values.length - 1; i > 0; i--) {
-      const j = randomInt(random, 0, i);
-      [values[i], values[j]] = [values[j], values[i]];
+  function asPattern(code, id) {
+    let digits = code;
+    const notes = [];
+    for (let slot = 0; slot < SLOTS; slot++) {
+      const digit = digits % 5;
+      digits = Math.floor(digits / 5);
+      if (digit !== 0) notes.push({lane: digit - 1, position: [slot, 4]});
     }
-    return values;
+    return {name: id, time_scale: 0, notes};
   }
 
-  function generate(seed, index, scaleMode) {
+  const codes = [];
+  for (let code = 1; code < 625; code++) {
+    if (code < mirrorCode(code)) codes.push(code);
+  }
+  if (codes.length !== TOTAL) throw new Error("unexpected orbit count");
+
+  // Fisher-Yates shuffle with a reproducible seeded unsigned 32-bit PRNG.
+  function order(seed) {
     if (!Number.isSafeInteger(seed) || seed < 0 || seed > 4294967295) {
       throw new Error("seed must be an unsigned 32-bit integer");
     }
-    if (!Number.isSafeInteger(index) || index < 0) {
-      throw new Error("index must be a nonnegative safe integer");
+    let state = seed >>> 0;
+    const random = function() {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const list = codes.slice();
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
     }
-    if (!["0", "1", "mixed"].includes(scaleMode)) {
-      throw new Error("scaleMode must be 0, 1, or mixed");
+    return list;
+  }
+
+  let cachedSeed = null, cachedOrder = null;
+  function generate(seed, index) {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= TOTAL) {
+      throw new Error("index must be 0.." + (TOTAL - 1));
     }
-
-    const random = rngFor(seed, index);
-    const grid = GRIDS[randomInt(random, 0, GRIDS.length - 1)];
-    const timeScale = scaleMode === "mixed"
-      ? (random() < 0.25 ? 1 : 0) : Number(scaleMode);
-    const recipes = ["stream", "jack", "chord", "mixed"];
-    const recipe = recipes[randomInt(random, 0, recipes.length - 1)];
-    const target = randomInt(random, 2, Math.min(12, grid * 2));
-    const cells = new Set();
-
-    function add(slot, lane) {
-      cells.add(slot * 4 + lane);
+    // Validation is performed by order, including when the seed changes.
+    if (cachedSeed !== seed) {
+      cachedOrder = order(seed);
+      cachedSeed = seed;
     }
-
-    if (recipe === "stream") {
-      const times = shuffled(random, grid).slice(0, Math.min(grid, target)).sort((a, b) => a - b);
-      let prev = randomInt(random, 0, 3);
-      for (const slot of times) {
-        let lane = randomInt(random, 0, 3);
-        if (lane === prev && random() < 0.8) {
-          lane = (prev + randomInt(random, 1, 3)) % 4;
-        }
-        add(slot, lane);
-        prev = lane;
-      }
-    } else if (recipe === "jack") {
-      const times = shuffled(random, grid).slice(0, Math.min(grid, Math.max(3, target)));
-      const anchor = randomInt(random, 0, 3);
-      for (const slot of times) {
-        add(slot, random() < 0.8 ? anchor : randomInt(random, 0, 3));
-      }
-    } else if (recipe === "chord") {
-      const times = shuffled(random, grid).slice(0, randomInt(random, 1, Math.min(grid, 4)));
-      for (let i = 0; i < target; i++) {
-        const slot = times[randomInt(random, 0, times.length - 1)];
-        add(slot, randomInt(random, 0, 3));
-      }
-    } else {
-      const cellsShuffled = shuffled(random, grid * 4);
-      for (const cell of cellsShuffled.slice(0, target)) {
-        cells.add(cell);
-      }
-    }
-
-    // A randomly selected cell can repeat in the chord recipe.
-    // Guarantee at least two unique notes without changing the deterministic sequence.
-    while (cells.size < 2) {
-      cells.add(randomInt(random, 0, grid * 4 - 1));
-    }
-
-    const placements = Array.from(cells, cell => ({
-      slot: Math.floor(cell / 4),
-      lane: cell % 4,
-    })).sort((a, b) => a.slot - b.slot || a.lane - b.lane);
-
-    const notes = placements.map(({ slot, lane }) => {
-      const divisor = gcd(slot, grid);
-      return {
-        lane: lane,
-        position: [slot / divisor, grid / divisor],
-      };
-    });
-
-    const id = "sample-" + seed + "-" + index;
+    const code = cachedOrder[index];
+    const reversed = mirrorCode(code);
+    const id = "pattern-" + String(code).padStart(3, "0");
     return {
-      id: id,
-      generator_index: index,
-      grid_divisions: grid,
-      sampling_recipe: recipe,
-      pattern: {
-        name: id,
-        time_scale: timeScale,
-        notes: notes,
-      },
+      id, generator_index: index, canonical_code: code, mirror_code: reversed,
+      grid_divisions: 4,
+      pattern: asPattern(code, id),
+      mirror_pattern: asPattern(reversed, id + "-mirror")
     };
   }
 
   function fingerprint(candidate) {
-    return JSON.stringify({
-      time_scale: candidate.pattern.time_scale,
-      notes: candidate.pattern.notes,
-    });
+    return JSON.stringify(candidate.pattern.notes);
   }
-
-  const api = { generate, fingerprint, GRIDS, DEFAULT_CATEGORIES };
-  if (typeof module !== "undefined" && module.exports) {
-    module.exports = api;
-  }
+  const api = {generate, fingerprint, mirrorCode, order, TOTAL, SLOTS, DEFAULT_CATEGORIES};
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.PatternLabelerGenerator = api;
 })(globalThis);
