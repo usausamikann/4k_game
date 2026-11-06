@@ -4,53 +4,66 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const G = require("./generator.js");
 
-test("same seed and generator index produce the same candidate", () => {
-  assert.deepEqual(G.generate(20261106, 1234, "0"), G.generate(20261106, 1234, "0"));
-  assert.notDeepEqual(G.generate(20261106, 1234, "0"), G.generate(20261106, 1235, "0"));
+test("exactly 312 distinct mirror-equivalence classes of 624 nonempty patterns", () => {
+  const indices = G.order(20261106);
+  assert.equal(G.TOTAL, 312);
+  assert.equal(indices.length, 312);
+  assert.equal(new Set(indices).size, 312);
+
+  const all = new Set();
+  const ids = new Set();
+  for (let i = 0; i < G.TOTAL; i++) {
+    const candidate = G.generate(20261106, i);
+    assert.ok(candidate.canonical_code < candidate.mirror_code);
+    assert.equal(G.mirrorCode(candidate.canonical_code), candidate.mirror_code);
+    assert.equal(G.mirrorCode(candidate.mirror_code), candidate.canonical_code);
+    ids.add(candidate.id);
+    all.add(candidate.canonical_code);
+    all.add(candidate.mirror_code);
+  }
+  assert.equal(ids.size, 312);
+  assert.deepEqual([...all].sort((a,b)=>a-b), Array.from({length:624}, (_,i)=>i+1));
 });
 
-test("all sampled notes are legal 1-beat positions and fit 960 ticks", () => {
-  for (const mode of ["0", "1", "mixed"]) {
-    for (let i = 0; i < 2000; i++) {
-      const item = G.generate(20261106, i, mode);
-      assert.ok(G.GRIDS.includes(item.grid_divisions));
-      assert.ok(item.pattern.notes.length >= 2);
-      assert.ok(["stream","jack","chord","mixed"].includes(item.sampling_recipe));
-      assert.ok(mode === "mixed" || item.pattern.time_scale === Number(mode));
-      const cells = new Set();
-      let lastTick = -1, lastLane = -1;
-      for (const note of item.pattern.notes) {
-        const [a, b] = note.position;
-        assert.ok(Number.isInteger(a) && Number.isInteger(b) && b > 0 && a >= 0 && a < b);
+test("all notes are on the 4 sixteenth-note slots, no chords, up to 4 notes", () => {
+  for (let i = 0; i < G.TOTAL; i++) {
+    const candidate = G.generate(12345, i);
+    for (const pattern of [candidate.pattern, candidate.mirror_pattern]) {
+      assert.equal(pattern.time_scale, 0);
+      assert.ok(pattern.notes.length >= 1 && pattern.notes.length <= 4);
+      const times = new Set();
+      for (const note of pattern.notes) {
         assert.ok(Number.isInteger(note.lane) && note.lane >= 0 && note.lane < 4);
-        assert.equal((960*a) % b, 0);
-        const tick = (960*a) / b;
-        assert.equal(tick % (item.pattern.time_scale+1), 0);
-        const fingerprint = note.lane + ":" + tick;
-        assert.ok(!cells.has(fingerprint), "duplicate note " + fingerprint);
-        cells.add(fingerprint);
-        assert.ok(tick > lastTick || (tick === lastTick && note.lane > lastLane));
-        lastTick = tick; lastLane = note.lane;
+        assert.equal(note.position[1], 4);
+        assert.ok(Number.isInteger(note.position[0]) &&
+          note.position[0] >= 0 && note.position[0] < 4);
+        assert.ok(!times.has(note.position[0]), "chord or duplicate at a slot");
+        times.add(note.position[0]);
       }
     }
   }
 });
 
-test("mixed mode includes both time scales and generator includes diverse recipes", () => {
-  const scales = new Set(), recipes = new Set(), fingerprints = new Set();
-  for (let i = 0; i < 250; i++) {
-    const item = G.generate(99, i, "mixed");
-    scales.add(item.pattern.time_scale);
-    recipes.add(item.sampling_recipe);
-    fingerprints.add(G.fingerprint(item));
-  }
-  assert.deepEqual(Array.from(scales).sort(), [0,1]);
-  assert.equal(recipes.size, 4);
-  assert.ok(fingerprints.size > 180, "candidate diversity");
+test("seed changes ordering, not candidate set or stable identifiers", () => {
+  assert.deepEqual(G.order(99), G.order(99));
+  assert.notDeepEqual(G.order(99), G.order(100));
+  const ids = seed => Array.from({length:G.TOTAL},
+    (_,i) => G.generate(seed, i).id).sort();
+  assert.deepEqual(ids(99), ids(100));
 });
 
-test("invalid generator configuration is rejected", () => {
-  for (const args of [[-1,0,"0"],[1,-1,"0"],[1,0,"x"],[4294967296,0,"0"],[1,1.5,"0"]]) {
+test("reflection is an involution and candidate IDs remain canonical", () => {
+  for (let code = 0; code < 625; code++) {
+    assert.equal(G.mirrorCode(G.mirrorCode(code)), code);
+  }
+  assert.equal(G.mirrorCode(0), 0);
+  for (let code = 1; code < 625; code++) {
+    assert.notEqual(G.mirrorCode(code), code);
+  }
+});
+
+test("invalid generator arguments are rejected", () => {
+  for (const args of [[-1,0],[1,-1],[4294967296,0],[1,312],[1,1.5]]) {
     assert.throws(() => G.generate(...args));
   }
 });
