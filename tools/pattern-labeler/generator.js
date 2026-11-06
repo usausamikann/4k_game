@@ -8,7 +8,7 @@
   "use strict";
   const DEFAULT_CATEGORIES = Object.freeze([
     "stream-light", "stream-middle", "stream-dense",
-    "jack-light", "jack-middle", "jack-dense", "other"
+    "jack-light", "jack-middle", "jack-dense", "other", "trill"
   ]);
   const SLOTS = 4;
   const TOTAL = 128;
