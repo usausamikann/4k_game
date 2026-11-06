@@ -4,66 +4,75 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const G = require("./generator.js");
 
-test("exactly 312 distinct mirror-equivalence classes of 624 nonempty patterns", () => {
-  const indices = G.order(20261106);
-  assert.equal(G.TOTAL, 312);
-  assert.equal(indices.length, 312);
-  assert.equal(new Set(indices).size, 312);
-
-  const all = new Set();
-  const ids = new Set();
-  for (let i = 0; i < G.TOTAL; i++) {
-    const candidate = G.generate(20261106, i);
-    assert.ok(candidate.canonical_code < candidate.mirror_code);
-    assert.equal(G.mirrorCode(candidate.canonical_code), candidate.mirror_code);
-    assert.equal(G.mirrorCode(candidate.mirror_code), candidate.canonical_code);
-    ids.add(candidate.id);
-    all.add(candidate.canonical_code);
-    all.add(candidate.mirror_code);
+function fullyOccupied(code) {
+  for (let slot = 0; slot < 4; slot++) {
+    if (code % 5 === 0) return false;
+    code = Math.floor(code / 5);
   }
-  assert.equal(ids.size, 312);
-  assert.deepEqual([...all].sort((a,b)=>a-b), Array.from({length:624}, (_,i)=>i+1));
+  return true;
+}
+
+test("128 distinct representatives cover all 256 full-rhythm sequences", () => {
+  assert.equal(G.TOTAL, 128);
+  assert.equal(G.RHYTHM_MASK, "1111");
+  const seen = new Set(), canonical = new Set(), ids = new Set();
+  for (let i = 0; i < G.TOTAL; i++) {
+    const c = G.generate(20261106, i);
+    assert.ok(c.canonical_code < c.mirror_code);
+    assert.ok(fullyOccupied(c.canonical_code));
+    assert.ok(fullyOccupied(c.mirror_code));
+    assert.equal(G.mirrorCode(c.canonical_code), c.mirror_code);
+    assert.equal(G.mirrorCode(c.mirror_code), c.canonical_code);
+    assert.equal(c.rhythm_mask, "1111");
+    assert.match(c.id, /^pattern-\d{3}$/);
+    canonical.add(c.canonical_code);
+    seen.add(c.canonical_code);
+    seen.add(c.mirror_code);
+    ids.add(c.id);
+  }
+  assert.equal(canonical.size, 128);
+  assert.equal(ids.size, 128);
+  assert.equal(seen.size, 256);
+  const expected = [];
+  for (let code = 1; code < 625; code++) if (fullyOccupied(code)) expected.push(code);
+  assert.deepEqual([...seen].sort((a,b)=>a-b), expected);
 });
 
-test("all notes are on the 4 sixteenth-note slots, no chords, up to 4 notes", () => {
+test("each one-beat chart has 4 strictly timed notes, with no chords", () => {
   for (let i = 0; i < G.TOTAL; i++) {
-    const candidate = G.generate(12345, i);
-    for (const pattern of [candidate.pattern, candidate.mirror_pattern]) {
-      assert.equal(pattern.time_scale, 0);
-      assert.ok(pattern.notes.length >= 1 && pattern.notes.length <= 4);
-      const times = new Set();
-      for (const note of pattern.notes) {
-        assert.ok(Number.isInteger(note.lane) && note.lane >= 0 && note.lane < 4);
-        assert.equal(note.position[1], 4);
-        assert.ok(Number.isInteger(note.position[0]) &&
-          note.position[0] >= 0 && note.position[0] < 4);
-        assert.ok(!times.has(note.position[0]), "chord or duplicate at a slot");
-        times.add(note.position[0]);
+    const c = G.generate(42, i);
+    for (const p of [c.pattern,c.mirror_pattern]) {
+      assert.equal(p.time_scale, 0);
+      assert.equal(p.notes.length, 4);
+      assert.deepEqual(p.notes.map(note => note.position),
+        [[0,4],[1,4],[2,4],[3,4]]);
+      for (const note of p.notes) {
+        assert.ok(Number.isInteger(note.lane) && note.lane >= 0 && note.lane <= 3);
       }
     }
+    const mirrored = c.pattern.notes.map(n => 3-n.lane);
+    assert.deepEqual(c.mirror_pattern.notes.map(n=>n.lane), mirrored);
   }
 });
 
-test("seed changes ordering, not candidate set or stable identifiers", () => {
+test("seed changes order, not set or identifiers (base-5 IDs unchanged)", () => {
   assert.deepEqual(G.order(99), G.order(99));
   assert.notDeepEqual(G.order(99), G.order(100));
-  const ids = seed => Array.from({length:G.TOTAL},
-    (_,i) => G.generate(seed, i).id).sort();
+  const ids = seed => Array.from({length:G.TOTAL},(_,i)=>G.generate(seed,i).id).sort();
   assert.deepEqual(ids(99), ids(100));
+  for (const id of ids(99)) assert.match(id, /^pattern-\d{3}$/);
 });
 
-test("reflection is an involution and candidate IDs remain canonical", () => {
+test("mirror operation is an involution; no fully occupied pattern is self-mirror", () => {
+  assert.equal(G.mirrorCode(0), 0);
   for (let code = 0; code < 625; code++) {
     assert.equal(G.mirrorCode(G.mirrorCode(code)), code);
-  }
-  assert.equal(G.mirrorCode(0), 0);
-  for (let code = 1; code < 625; code++) {
-    assert.notEqual(G.mirrorCode(code), code);
+    if (fullyOccupied(code)) assert.notEqual(G.mirrorCode(code), code);
   }
 });
 
-test("invalid generator arguments are rejected", () => {
-  for (const args of [[-1,0],[1,-1],[4294967296,0],[1,312],[1,1.5]]) {
+test("invalid seed / index are rejected", () => {
+  for (const args of [[-1,0],[1,-1],[4294967296,0],[1,128],[1,1.5]]) {
     assert.throws(() => G.generate(...args));
   }
 });
