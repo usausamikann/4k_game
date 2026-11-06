@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>4K Game — 1拍パターン分類</title>
+  <style>
+    :root { color-scheme: dark; --bg:#10151f; --panel:#1b2534; --border:#35455b; --text:#edf3fb; --muted:#b5c4d7; --accent:#88b7ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,"Yu Gothic",Meiryo,sans-serif; }
+    main { max-width:990px; margin:0 auto; padding:30px 18px 70px; }
+    h1 { font-size:clamp(24px,4vw,34px); letter-spacing:.01em; margin:0 0 6px; }
+    h2 { margin:0 0 12px; font-size:20px; }
+    p { margin:0 0 12px; }
+    .subtle, small { color:var(--muted); }
+    .stack { display:grid; gap:18px; }
+    .panel { padding:22px; background:var(--panel); border:1px solid var(--border); border-radius:16px; }
+    .topbar, .actions, .options { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .topbar { justify-content:space-between; margin-bottom:12px; }
+    .stat { display:inline-block; border:1px solid var(--border); border-radius:100px; padding:5px 12px; font-size:14px; }
+    .diagram { background:#111a26; border:1px solid var(--border); border-radius:12px; text-align:center; overflow:hidden; }
+    svg { display:block; width:100%; max-width:580px; height:auto; margin:auto; }
+    .diagram text { fill:#cbd7e8; font-size:13px; font-family:system-ui,sans-serif; }
+    .diagram .lane-name { font-weight:700; font-size:16px; }
+    .meta { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:12px 0 0; color:var(--muted); font-size:14px; }
+    .choices { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+    button, select, input { font:inherit; }
+    button { color:var(--text); background:#263548; border:1px solid #526580; border-radius:10px; padding:12px 14px; cursor:pointer; }
+    button:hover:not(:disabled) { border-color:var(--accent); background:#324764; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+    button:disabled { opacity:.46; cursor:not-allowed; }
+    button.chosen { background:#1f548b; border-color:#a7d0ff; box-shadow:inset 0 0 0 1px #a7d0ff; }
+    .primary { background:#2565a8; border-color:#7eb7ff; font-weight:700; }
+    .primary:hover:not(:disabled) { background:#3779bd; }
+    .actions { margin-top:16px; }
+    input,select { color:var(--text); background:#101a29; border:1px solid #65738a; padding:10px 12px; border-radius:8px; }
+    input { width:210px; max-width:100%; }
+    .options { margin-top:16px; }
+    .label-add { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:16px; }
+    .hint { color:var(--muted); font-size:14px; margin-top:12px; }
+    .warning { color:#ffcf8c; min-height:1.5em; }
+    .footer { margin-top:14px; }
+    @media(max-width:620px) { .panel { padding:15px; } .choices { grid-template-columns:repeat(2,minmax(0,1fr)); } .choices button { padding:12px 6px; font-size:14px; } }
+  </style>
+</head>
+<body>
+<main class="stack">
+  <header>
+    <h1>4K Game / パターン分類</h1>
+    <p class="subtle">16分音符4スロットすべてに1ノーツずつ配置（リズム1111）。左右反転を同一視した全128パターンを分類する試作ツール。</p>
+  </header>
+  <section class="panel" aria-labelledby="pattern-heading">
+    <div class="topbar">
+      <h2 id="pattern-heading">現在のパターン</h2>
+      <div><span class="stat" id="counter">確定 0 / 128 件</span> <span class="stat" id="sample-id">#1 / 128</span></div>
+    </div>
+    <div class="diagram" id="diagram" role="img" aria-label="4レーンのノーツ配置（下が拍頭、上が拍末）"></div>
+    <div class="meta">
+      <span id="pattern-meta">候補を生成中</span>
+      <span>下＝拍頭 / 上＝拍末（ゲーム中の落下方向とは逆向きの時刻配置）</span>
+    </div>
+  </section>
+  <section class="panel" aria-labelledby="label-heading">
+    <h2 id="label-heading">このパターンの分類は？</h2>
+    <div class="choices" id="categories" role="group" aria-label="分類ラベル"></div>
+    <div class="label-add">
+      <input id="new-category" aria-label="新しい分類名" maxlength="40" placeholder="新しい分類名">
+      <button type="button" id="add-category">＋ 分類を追加</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="back">← 戻って修正</button>
+      <button type="button" id="next" class="primary" disabled>Next → （記録して次へ）</button>
+    </div>
+    <p class="hint">数字キー1〜9で選択、EnterでNext。押した分類はNext時に確定する。戻ると直前の回答を修正できるよ。</p>
+    <p class="warning" id="warning" role="status"></p>
+  </section>
+  <section class="panel">
+    <h2>記録の出力と設定</h2>
+    <p class="subtle">確定済みの回答をJSON/CSVで保存できる。JSONには元のパターンに加えて左右反転後のパターンも含む。</p>
+    <div class="actions">
+      <button id="export-json" type="button">JSONを出力</button>
+      <button id="export-csv" type="button">CSVを出力</button>
+    </div>
+    <div class="options">
+      <label for="seed">乱数seed</label>
+      <input id="seed" type="number" min="0" max="4294967295" step="1" inputmode="numeric">
+      <button type="button" id="new-session">新しいセッション</button>
+    </div>
+    <p class="hint">4レーン×4スロットで4⁴=256配置。左右反転で同一視した128個を重複なく提示する。seedは表示順だけを変更する。time_scaleは0固定。</p>
+    <p class="hint">自動保存はlocalStorage。端末・ブラウザを変えると引き継がれないから定期的にJSONを出力してね。70件の回答が入った旧版（v2）は別の保存領域に残す。この1111専用版（v3）は新規開始。セッションを作り直すとv3の回答は消えるよ。</p>
+  </section>
+</main>
+<script src="./generator.js"></script>
+<script>
+(function () {
+  "use strict";
+  const G = window.PatternLabelerGenerator;
+  const KEY = "4k_game.pattern_labeler.v3_1111";
+  const $ = id => document.getElementById(id);
+  let notice = "";
+
+  function fresh(seed, categories) {
+    return {
+      version: 3,
+      seed: seed,
+      nextIndex: 0,
+      categories: categories || Array.from(G.DEFAULT_CATEGORIES),
+      labels: [],
+      current: null,
+      selected: null,
+    };
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return fresh(20261106);
+      const data = JSON.parse(raw);
+      if (data.version !== 3 || !Array.isArray(data.labels) ||
+          !Array.isArray(data.categories) || !Number.isSafeInteger(data.nextIndex) ||
+          data.nextIndex < 0 || data.nextIndex > G.TOTAL ||
+          !Number.isSafeInteger(data.seed) || data.seed < 0 || data.seed > 4294967295) {
+        throw new Error("保存データの形式を認識できない");
+      }
+      return data;
+    } catch (err) {
+      notice = "以前の保存データを読めなかった: " + err.message +
+        "。JSONで現在のデータを退避してから操作してね。";
+      return fresh(20261106);
+    }
+  }
+
+  let state = load();
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+    } catch (err) {
+      notice = "ブラウザへの自動保存に失敗した: " + err.message + "。JSONを出力して保管してね。";
+    }
+  }
+
+  function nextCandidate() {
+    if (state.nextIndex >= G.TOTAL) return null;
+    return G.generate(state.seed, state.nextIndex++);
+  }
+
+  if (!state.current && state.nextIndex < G.TOTAL) {
+    state.current = nextCandidate();
+    save();
+  }
+
+  function svgNode(tag, attributes, value) {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, val] of Object.entries(attributes || {})) el.setAttribute(key, String(val));
+    if (value !== undefined) el.textContent = value;
+    return el;
+  }
+
+  function renderDiagram(candidate) {
+    const host = $("diagram");
+    host.replaceChildren();
+    const svg = svgNode("svg", { viewBox:"0 0 520 406", "aria-hidden":"true" });
+    const { grid_divisions: divisions, pattern } = candidate;
+    const top = 49, bottom = 356, start = 52, width = 104;
+    const colors = ["#78bcff", "#8cdbbb", "#f7c875", "#d8a8f4"];
+
+    for (let lane = 0; lane < 4; lane++) {
+      const x = start + width * lane;
+      svg.append(svgNode("rect", { x:x+1, y:top, width:width-2, height:bottom-top,
+        fill:lane%2 ? "#1e2b39" : "#243346" }));
+      svg.append(svgNode("text", { x:x+width/2, y:27, "text-anchor":"middle", class:"lane-name" },
+        ["D","F","J","K"][lane]));
+    }
+    for (let part = 0; part <= divisions; part++) {
+      const y = bottom - (part / divisions) * (bottom - top);
+      svg.append(svgNode("line", { x1:start, x2:start+4*width, y1:y, y2:y,
+        stroke:(part === 0 || part === divisions)?"#b9c9dd":"#526279",
+        "stroke-width":part===0?2:0.9, "stroke-dasharray":part===0?"":"3 4" }));
+    }
+    svg.append(svgNode("text", { x:8, y:bottom+5 }, "0"));
+    svg.append(svgNode("text", { x:8, y:top+5 }, "1"));
+    svg.append(svgNode("text", { x:start+2*width, y:394, "text-anchor":"middle" },
+      "1拍内の配置（position）"));
+
+    for (const note of pattern.notes) {
+      const x = start + width * note.lane + 9;
+      const at = note.position[0] / note.position[1];
+      const y = bottom - at * (bottom - top) - 8;
+      svg.append(svgNode("rect", { x:x, y:y, width:width-18, height:16,
+        rx:3, fill:colors[note.lane], stroke:"#ecf6ff", "stroke-width":0.7 }));
+    }
+    host.append(svg);
+  }
+
+  function render() {
+    const current = state.current;
+    $("counter").textContent = "確定 " + state.labels.length + " / " + G.TOTAL + " 件";
+    $("sample-id").textContent = current
+      ? "#" + (current.generator_index + 1) + " / " + G.TOTAL : "完了";
+    $("seed").value = state.seed;
+    if (current) {
+      $("pattern-meta").textContent = "ノーツ " + current.pattern.notes.length +
+        " 個 / リズム1111（16分音符4連打） / time_scale=0（1拍） / 左右反転を統合";
+      renderDiagram(current);
+    } else {
+      $("pattern-meta").textContent = "全128パターンの分類が完了。JSONで結果を保存してね。";
+      $("diagram").replaceChildren();
+      const done = document.createElement("p");
+      done.textContent = "128 / 128 完了";
+      done.style.padding = "70px 20px";
+      $("diagram").append(done);
+    }
+
+    const categories = $("categories");
+    categories.replaceChildren();
+    state.categories.forEach((label, i) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = (i < 9 ? (i+1) + ". " : "") + label;
+      button.className = label === state.selected ? "chosen" : "";
+      button.disabled = !current;
+      button.setAttribute("aria-pressed", label === state.selected ? "true" : "false");
+      button.addEventListener("click", () => choose(label));
+      categories.append(button);
+    });
+    $("next").disabled = !current || !state.selected;
+    $("back").disabled = state.labels.length === 0;
+    $("warning").textContent = notice;
+  }
+
+  function choose(label) {
+    if (!state.current) return;
+    state.selected = label;
+    save();
+    render();
+  }
+
+  function next() {
+    if (!state.current || !state.selected) return;
+    state.labels.push({
+      candidate: state.current,
+      category: state.selected,
+      labeled_at: new Date().toISOString(),
+    });
+    state.current = nextCandidate();
+    state.selected = null;
+    notice = state.current ? "" : "128パターンの分類が完了したよ。JSONを保存してね。";
+    save();
+    render();
+  }
+
+  function back() {
+    const record = state.labels.pop();
+    if (!record) return;
+    state.current = record.candidate;
+    state.selected = record.category;
+    state.nextIndex = record.candidate.generator_index + 1;
+    notice = "直前の回答を開いたよ。分類を選び直してNextで確定してね。";
+    save();
+    render();
+  }
+
+  function addCategory() {
+    const input = $("new-category");
+    const label = input.value.trim();
+    if (!label || label.length > 40) {
+      notice = "分類名は1〜40文字で指定してね。";
+    } else if (state.categories.includes(label)) {
+      notice = "その分類は既に存在するよ。";
+    } else {
+      state.categories.push(label);
+      state.selected = label;
+      input.value = "";
+      notice = "分類「" + label + "」を追加したよ。";
+      save();
+    }
+    render();
+  }
+
+  function outputRows() {
+    return state.labels.map(row => ({
+      id: row.candidate.id,
+      seed: state.seed,
+      generator_index: row.candidate.generator_index,
+      category: row.category,
+      labeled_at: row.labeled_at,
+      grid_divisions: row.candidate.grid_divisions,
+      rhythm_mask: row.candidate.rhythm_mask,
+      canonical_code: row.candidate.canonical_code,
+      mirror_code: row.candidate.mirror_code,
+      pattern: row.candidate.pattern,
+      mirror_pattern: row.candidate.mirror_pattern,
+    }));
+  }
+
+  function download(name, text, mime) {
+    const blob = new Blob([text], { type:mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportJSON() {
+    const data = {
+      format: "4k_game_pattern_labels",
+      version: 3,
+      exported_at: new Date().toISOString(),
+      seed: state.seed,
+      sampling: "exhaustive_full_rhythm_1111_mirror_reduced_4x16th",
+      rhythm_mask: G.RHYTHM_MASK,
+      total: G.TOTAL,
+      category_options: state.categories,
+      labels: outputRows(),
+    };
+    download("4k_1111_labels_" + state.seed + "_" + state.labels.length + ".json",
+      JSON.stringify(data, null, 2) + "\n", "application/json;charset=utf-8");
+  }
+
+  function quoteCSV(value) {
+    const s = String(value == null ? "" : value);
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+
+  function exportCSV() {
+    const headings = ["id","seed","generator_index","category","labeled_at",
+      "grid_divisions","rhythm_mask","canonical_code","mirror_code","time_scale","notes_json","mirror_notes_json"];
+    const rows = outputRows().map(row => [
+      row.id, row.seed, row.generator_index, row.category, row.labeled_at,
+      row.grid_divisions, row.rhythm_mask, row.canonical_code, row.mirror_code, row.pattern.time_scale,
+      JSON.stringify(row.pattern.notes), JSON.stringify(row.mirror_pattern.notes),
+    ].map(quoteCSV).join(","));
+    download("4k_1111_labels_" + state.seed + "_" + state.labels.length + ".csv",
+      "\uFEFF" + headings.join(",") + "\r\n" + rows.join("\r\n") + "\r\n",
+      "text/csv;charset=utf-8");
+  }
+
+  function newSession() {
+    const seed = Number($("seed").value);
+    if (!Number.isSafeInteger(seed) || seed < 0 || seed > 4294967295) {
+      notice = "seedには0〜4294967295の整数を指定してね。";
+      render();
+      return;
+    }
+    if (!confirm("確定済みの " + state.labels.length +
+      " 件を消去して新しいセッションを開始するよ。JSON/CSVに出力した？")) {
+      render();
+      return;
+    }
+    const oldCategories = state.categories.slice();
+    state = fresh(seed, oldCategories);
+    state.current = nextCandidate();
+    notice = "新しいセッションを開始したよ。";
+    save();
+    render();
+  }
+
+  $("next").addEventListener("click", next);
+  $("back").addEventListener("click", back);
+  $("add-category").addEventListener("click", addCategory);
+  $("new-category").addEventListener("keydown", event => {
+    if (event.key === "Enter") { event.preventDefault(); addCategory(); }
+  });
+  $("export-json").addEventListener("click", exportJSON);
+  $("export-csv").addEventListener("click", exportCSV);
+  $("new-session").addEventListener("click", newSession);
+  window.addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement ||
+        target instanceof HTMLTextAreaElement || target instanceof HTMLButtonElement) return;
+    const number = Number(event.key);
+    if (/^[1-9]$/.test(event.key) && number <= state.categories.length) {
+      choose(state.categories[number - 1]);
+    } else if (event.key === "Enter") {
+      next();
+    }
+  });
+  render();
+})();
+</script>
+</body>
+</html>
