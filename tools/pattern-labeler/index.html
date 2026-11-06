@@ -47,12 +47,12 @@
 <main class="stack">
   <header>
     <h1>4K Game / パターン分類</h1>
-    <p class="subtle">16分音符4スロット・同時押しなし・全休符なし。左右反転を同一視した全312パターンを分類する試作ツール。</p>
+    <p class="subtle">16分音符4スロットすべてに1ノーツずつ配置（リズム1111）。左右反転を同一視した全128パターンを分類する試作ツール。</p>
   </header>
   <section class="panel" aria-labelledby="pattern-heading">
     <div class="topbar">
       <h2 id="pattern-heading">現在のパターン</h2>
-      <div><span class="stat" id="counter">確定 0 / 312 件</span> <span class="stat" id="sample-id">#1 / 312</span></div>
+      <div><span class="stat" id="counter">確定 0 / 128 件</span> <span class="stat" id="sample-id">#1 / 128</span></div>
     </div>
     <div class="diagram" id="diagram" role="img" aria-label="4レーンのノーツ配置（下が拍頭、上が拍末）"></div>
     <div class="meta">
@@ -86,8 +86,8 @@
       <input id="seed" type="number" min="0" max="4294967295" step="1" inputmode="numeric">
       <button type="button" id="new-session">新しいセッション</button>
     </div>
-    <p class="hint">全625パターンから全休符を除いた624個を左右反転で同一視し、312個を重複なく提示する。seedは表示順だけを変更する。time_scaleは0固定。</p>
-    <p class="hint">自動保存はlocalStorage。端末・ブラウザを変えると引き継がれないから定期的にJSONを出力してね。旧版の回答は別の保存領域に残し、この修正版は新しいセッションから始める。新しいセッションを作り直すと修正版の回答が消えるよ。</p>
+    <p class="hint">4レーン×4スロットで4⁴=256配置。左右反転で同一視した128個を重複なく提示する。seedは表示順だけを変更する。time_scaleは0固定。</p>
+    <p class="hint">自動保存はlocalStorage。端末・ブラウザを変えると引き継がれないから定期的にJSONを出力してね。70件の回答が入った旧版（v2）は別の保存領域に残す。この1111専用版（v3）は新規開始。セッションを作り直すとv3の回答は消えるよ。</p>
   </section>
 </main>
 <script src="./generator.js"></script>
@@ -95,13 +95,13 @@
 (function () {
   "use strict";
   const G = window.PatternLabelerGenerator;
-  const KEY = "4k_game.pattern_labeler.v2";
+  const KEY = "4k_game.pattern_labeler.v3_1111";
   const $ = id => document.getElementById(id);
   let notice = "";
 
   function fresh(seed, categories) {
     return {
-      version: 2,
+      version: 3,
       seed: seed,
       nextIndex: 0,
       categories: categories || Array.from(G.DEFAULT_CATEGORIES),
@@ -116,7 +116,7 @@
       const raw = localStorage.getItem(KEY);
       if (!raw) return fresh(20261106);
       const data = JSON.parse(raw);
-      if (data.version !== 2 || !Array.isArray(data.labels) ||
+      if (data.version !== 3 || !Array.isArray(data.labels) ||
           !Array.isArray(data.categories) || !Number.isSafeInteger(data.nextIndex) ||
           data.nextIndex < 0 || data.nextIndex > G.TOTAL ||
           !Number.isSafeInteger(data.seed) || data.seed < 0 || data.seed > 4294967295) {
@@ -201,13 +201,13 @@
     $("seed").value = state.seed;
     if (current) {
       $("pattern-meta").textContent = "ノーツ " + current.pattern.notes.length +
-        " 個 / 4分割（16分音符） / time_scale=0（1拍） / 左右反転を統合";
+        " 個 / リズム1111（16分音符4連打） / time_scale=0（1拍） / 左右反転を統合";
       renderDiagram(current);
     } else {
-      $("pattern-meta").textContent = "全312パターンの分類が完了。JSONで結果を保存してね。";
+      $("pattern-meta").textContent = "全128パターンの分類が完了。JSONで結果を保存してね。";
       $("diagram").replaceChildren();
       const done = document.createElement("p");
-      done.textContent = "312 / 312 完了";
+      done.textContent = "128 / 128 完了";
       done.style.padding = "70px 20px";
       $("diagram").append(done);
     }
@@ -245,7 +245,7 @@
     });
     state.current = nextCandidate();
     state.selected = null;
-    notice = state.current ? "" : "312パターンの分類が完了したよ。JSONを保存してね。";
+    notice = state.current ? "" : "128パターンの分類が完了したよ。JSONを保存してね。";
     save();
     render();
   }
@@ -286,6 +286,7 @@
       category: row.category,
       labeled_at: row.labeled_at,
       grid_divisions: row.candidate.grid_divisions,
+      rhythm_mask: row.candidate.rhythm_mask,
       canonical_code: row.candidate.canonical_code,
       mirror_code: row.candidate.mirror_code,
       pattern: row.candidate.pattern,
@@ -308,15 +309,16 @@
   function exportJSON() {
     const data = {
       format: "4k_game_pattern_labels",
-      version: 2,
+      version: 3,
       exported_at: new Date().toISOString(),
       seed: state.seed,
-      sampling: "exhaustive_mirror_reduced_4x16th",
+      sampling: "exhaustive_full_rhythm_1111_mirror_reduced_4x16th",
+      rhythm_mask: G.RHYTHM_MASK,
       total: G.TOTAL,
       category_options: state.categories,
       labels: outputRows(),
     };
-    download("4k_labels_" + state.seed + "_" + state.labels.length + ".json",
+    download("4k_1111_labels_" + state.seed + "_" + state.labels.length + ".json",
       JSON.stringify(data, null, 2) + "\n", "application/json;charset=utf-8");
   }
 
@@ -327,13 +329,13 @@
 
   function exportCSV() {
     const headings = ["id","seed","generator_index","category","labeled_at",
-      "grid_divisions","canonical_code","mirror_code","time_scale","notes_json","mirror_notes_json"];
+      "grid_divisions","rhythm_mask","canonical_code","mirror_code","time_scale","notes_json","mirror_notes_json"];
     const rows = outputRows().map(row => [
       row.id, row.seed, row.generator_index, row.category, row.labeled_at,
-      row.grid_divisions, row.canonical_code, row.mirror_code, row.pattern.time_scale,
+      row.grid_divisions, row.rhythm_mask, row.canonical_code, row.mirror_code, row.pattern.time_scale,
       JSON.stringify(row.pattern.notes), JSON.stringify(row.mirror_pattern.notes),
     ].map(quoteCSV).join(","));
-    download("4k_labels_" + state.seed + "_" + state.labels.length + ".csv",
+    download("4k_1111_labels_" + state.seed + "_" + state.labels.length + ".csv",
       "\uFEFF" + headings.join(",") + "\r\n" + rows.join("\r\n") + "\r\n",
       "text/csv;charset=utf-8");
   }
