@@ -47,12 +47,12 @@
 <main class="stack">
   <header>
     <h1>4K Game / パターン分類</h1>
-    <p class="subtle">1拍の候補を見て、人間がラベルを付けるための試作ツール。データはこのブラウザ内に保存するよ。</p>
+    <p class="subtle">16分音符4スロット・同時押しなし・全休符なし。左右反転を同一視した全312パターンを分類する試作ツール。</p>
   </header>
   <section class="panel" aria-labelledby="pattern-heading">
     <div class="topbar">
       <h2 id="pattern-heading">現在のパターン</h2>
-      <div><span class="stat" id="counter">確定 0 件</span> <span class="stat" id="sample-id">#0</span></div>
+      <div><span class="stat" id="counter">確定 0 / 312 件</span> <span class="stat" id="sample-id">#1 / 312</span></div>
     </div>
     <div class="diagram" id="diagram" role="img" aria-label="4レーンのノーツ配置（下が拍頭、上が拍末）"></div>
     <div class="meta">
@@ -76,26 +76,18 @@
   </section>
   <section class="panel">
     <h2>記録の出力と設定</h2>
-    <p class="subtle">確定済みの回答をJSON/CSVで保存できる。JSONは元のパターンJSON（position / time_scale）を含む。</p>
+    <p class="subtle">確定済みの回答をJSON/CSVで保存できる。JSONには元のパターンに加えて左右反転後のパターンも含む。</p>
     <div class="actions">
       <button id="export-json" type="button">JSONを出力</button>
       <button id="export-csv" type="button">CSVを出力</button>
-    </div>
-    <div class="options">
-      <label for="scale-mode">次の候補のtime_scale</label>
-      <select id="scale-mode">
-        <option value="0">0：通常</option>
-        <option value="1">1：2倍密度</option>
-        <option value="mixed">混在（通常75%）</option>
-      </select>
     </div>
     <div class="options">
       <label for="seed">乱数seed</label>
       <input id="seed" type="number" min="0" max="4294967295" step="1" inputmode="numeric">
       <button type="button" id="new-session">新しいセッション</button>
     </div>
-    <p class="hint">候補は4/6/8/12/16分割から擬似乱数でサンプリングする試作版。あり得る全パターンを列挙するわけではない。time_scale変更は次の候補から反映される。</p>
-    <p class="hint">自動保存はlocalStorage。端末・ブラウザを変えると引き継がれないから、定期的にJSONを出力しておいてね。新しいセッションでは回答を消去するので、事前の出力を推奨する。</p>
+    <p class="hint">全625パターンから全休符を除いた624個を左右反転で同一視し、312個を重複なく提示する。seedは表示順だけを変更する。time_scaleは0固定。</p>
+    <p class="hint">自動保存はlocalStorage。端末・ブラウザを変えると引き継がれないから定期的にJSONを出力してね。旧版の回答は別の保存領域に残し、この修正版は新しいセッションから始める。新しいセッションを作り直すと修正版の回答が消えるよ。</p>
   </section>
 </main>
 <script src="./generator.js"></script>
@@ -103,16 +95,15 @@
 (function () {
   "use strict";
   const G = window.PatternLabelerGenerator;
-  const KEY = "4k_game.pattern_labeler.v1";
+  const KEY = "4k_game.pattern_labeler.v2";
   const $ = id => document.getElementById(id);
   let notice = "";
 
   function fresh(seed, categories) {
     return {
-      version: 1,
+      version: 2,
       seed: seed,
       nextIndex: 0,
-      scaleMode: "0",
       categories: categories || Array.from(G.DEFAULT_CATEGORIES),
       labels: [],
       current: null,
@@ -125,9 +116,10 @@
       const raw = localStorage.getItem(KEY);
       if (!raw) return fresh(20261106);
       const data = JSON.parse(raw);
-      if (data.version !== 1 || !Array.isArray(data.labels) ||
+      if (data.version !== 2 || !Array.isArray(data.labels) ||
           !Array.isArray(data.categories) || !Number.isSafeInteger(data.nextIndex) ||
-          !Number.isSafeInteger(data.seed) || !["0", "1", "mixed"].includes(data.scaleMode)) {
+          data.nextIndex < 0 || data.nextIndex > G.TOTAL ||
+          !Number.isSafeInteger(data.seed) || data.seed < 0 || data.seed > 4294967295) {
         throw new Error("保存データの形式を認識できない");
       }
       return data;
@@ -149,18 +141,11 @@
   }
 
   function nextCandidate() {
-    const seen = new Set(state.labels.map(row => G.fingerprint(row.candidate)));
-    if (state.current) seen.add(G.fingerprint(state.current));
-    for (let tries = 0; tries < 2048; tries++) {
-      const candidate = G.generate(state.seed, state.nextIndex++, state.scaleMode);
-      if (!seen.has(G.fingerprint(candidate))) {
-        return candidate;
-      }
-    }
-    throw new Error("重複しない候補を生成できなかった。設定を変更してね");
+    if (state.nextIndex >= G.TOTAL) return null;
+    return G.generate(state.seed, state.nextIndex++);
   }
 
-  if (!state.current) {
+  if (!state.current && state.nextIndex < G.TOTAL) {
     state.current = nextCandidate();
     save();
   }
@@ -209,15 +194,23 @@
   }
 
   function render() {
-    $("counter").textContent = "確定 " + state.labels.length + " 件";
-    $("sample-id").textContent = "#" + state.current.generator_index;
     const current = state.current;
-    $("pattern-meta").textContent = "ノーツ " + current.pattern.notes.length +
-      " 個 / " + current.grid_divisions + " 分割 / time_scale=" +
-      current.pattern.time_scale + (current.pattern.time_scale === 0 ? "（1拍）" : "（1/2拍）");
+    $("counter").textContent = "確定 " + state.labels.length + " / " + G.TOTAL + " 件";
+    $("sample-id").textContent = current
+      ? "#" + (current.generator_index + 1) + " / " + G.TOTAL : "完了";
     $("seed").value = state.seed;
-    $("scale-mode").value = state.scaleMode;
-    renderDiagram(current);
+    if (current) {
+      $("pattern-meta").textContent = "ノーツ " + current.pattern.notes.length +
+        " 個 / 4分割（16分音符） / time_scale=0（1拍） / 左右反転を統合";
+      renderDiagram(current);
+    } else {
+      $("pattern-meta").textContent = "全312パターンの分類が完了。JSONで結果を保存してね。";
+      $("diagram").replaceChildren();
+      const done = document.createElement("p");
+      done.textContent = "312 / 312 完了";
+      done.style.padding = "70px 20px";
+      $("diagram").append(done);
+    }
 
     const categories = $("categories");
     categories.replaceChildren();
@@ -226,45 +219,35 @@
       button.type = "button";
       button.textContent = (i < 9 ? (i+1) + ". " : "") + label;
       button.className = label === state.selected ? "chosen" : "";
+      button.disabled = !current;
       button.setAttribute("aria-pressed", label === state.selected ? "true" : "false");
       button.addEventListener("click", () => choose(label));
       categories.append(button);
     });
-    $("next").disabled = !state.selected;
+    $("next").disabled = !current || !state.selected;
     $("back").disabled = state.labels.length === 0;
     $("warning").textContent = notice;
   }
 
   function choose(label) {
+    if (!state.current) return;
     state.selected = label;
     save();
     render();
   }
 
   function next() {
-    if (!state.selected) return;
-    const record = {
+    if (!state.current || !state.selected) return;
+    state.labels.push({
       candidate: state.current,
       category: state.selected,
       labeled_at: new Date().toISOString(),
-    };
-    const oldCurrent = state.current;
-    const oldNextIndex = state.nextIndex;
-    state.labels.push(record);
-    state.current = null;
-    try {
-      state.current = nextCandidate();
-      state.selected = null;
-      notice = "";
-      save();
-      render();
-    } catch (err) {
-      state.labels.pop();
-      state.current = oldCurrent;
-      state.nextIndex = oldNextIndex;
-      notice = err.message;
-      render();
-    }
+    });
+    state.current = nextCandidate();
+    state.selected = null;
+    notice = state.current ? "" : "312パターンの分類が完了したよ。JSONを保存してね。";
+    save();
+    render();
   }
 
   function back() {
@@ -303,8 +286,10 @@
       category: row.category,
       labeled_at: row.labeled_at,
       grid_divisions: row.candidate.grid_divisions,
-      sampling_recipe: row.candidate.sampling_recipe,
+      canonical_code: row.candidate.canonical_code,
+      mirror_code: row.candidate.mirror_code,
       pattern: row.candidate.pattern,
+      mirror_pattern: row.candidate.mirror_pattern,
     }));
   }
 
@@ -323,10 +308,11 @@
   function exportJSON() {
     const data = {
       format: "4k_game_pattern_labels",
-      version: 1,
+      version: 2,
       exported_at: new Date().toISOString(),
       seed: state.seed,
-      sampling: "deterministic_random_candidates_not_exhaustive",
+      sampling: "exhaustive_mirror_reduced_4x16th",
+      total: G.TOTAL,
       category_options: state.categories,
       labels: outputRows(),
     };
@@ -341,11 +327,11 @@
 
   function exportCSV() {
     const headings = ["id","seed","generator_index","category","labeled_at",
-      "grid_divisions","sampling_recipe","time_scale","notes_json"];
+      "grid_divisions","canonical_code","mirror_code","time_scale","notes_json","mirror_notes_json"];
     const rows = outputRows().map(row => [
       row.id, row.seed, row.generator_index, row.category, row.labeled_at,
-      row.grid_divisions, row.sampling_recipe, row.pattern.time_scale,
-      JSON.stringify(row.pattern.notes),
+      row.grid_divisions, row.canonical_code, row.mirror_code, row.pattern.time_scale,
+      JSON.stringify(row.pattern.notes), JSON.stringify(row.mirror_pattern.notes),
     ].map(quoteCSV).join(","));
     download("4k_labels_" + state.seed + "_" + state.labels.length + ".csv",
       "\uFEFF" + headings.join(",") + "\r\n" + rows.join("\r\n") + "\r\n",
@@ -365,9 +351,7 @@
       return;
     }
     const oldCategories = state.categories.slice();
-    const oldScale = state.scaleMode;
     state = fresh(seed, oldCategories);
-    state.scaleMode = oldScale;
     state.current = nextCandidate();
     notice = "新しいセッションを開始したよ。";
     save();
@@ -383,12 +367,6 @@
   $("export-json").addEventListener("click", exportJSON);
   $("export-csv").addEventListener("click", exportCSV);
   $("new-session").addEventListener("click", newSession);
-  $("scale-mode").addEventListener("change", event => {
-    state.scaleMode = event.target.value;
-    notice = "次の候補からtime_scale設定を反映するよ。";
-    save();
-    render();
-  });
   window.addEventListener("keydown", event => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
     const target = event.target;
