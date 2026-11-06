@@ -1,6 +1,7 @@
-/* Exhaustive, mirror-reduced 1-beat (4 sixteenth-note slots) candidates.
- * Each slot is REST or exactly one of 4 lanes. Nonempty = 5^4-1=624.
- * Mirror pairs have no nonempty fixed points, so there are 312 orbits.
+/* Exhaustive, mirror-reduced 1-beat 1111-rhythm candidates.
+ * Four 16th-note slots, exactly one note on one of the 4 lanes per slot.
+ * There are 4^4=256 fully occupied patterns, paired by horizontal mirror
+ * (lane 0<->3 and lane 1<->2), yielding 128 orbit representatives.
  * Browser: window.PatternLabelerGenerator; Node: require("./generator.js").
  */
 (function(root) {
@@ -10,7 +11,8 @@
     "jack-light", "jack-middle", "jack-dense", "other"
   ]);
   const SLOTS = 4;
-  const TOTAL = 312;
+  const TOTAL = 128;
+  const RHYTHM_MASK = "1111";
 
   function mirrorCode(code) {
     if (!Number.isInteger(code) || code < 0 || code >= 625) throw new Error("invalid code");
@@ -35,9 +37,19 @@
     return {name: id, time_scale: 0, notes};
   }
 
+  // Keep base-5 codes and names stable with the former 312-pattern dataset.
+  // A nonzero digit at all four slots means the rhythm mask is exactly 1111.
+  function isFullyOccupied(code) {
+    for (let slot = 0; slot < SLOTS; slot++) {
+      if (code % 5 === 0) return false;
+      code = Math.floor(code / 5);
+    }
+    return true;
+  }
+
   const codes = [];
   for (let code = 1; code < 625; code++) {
-    if (code < mirrorCode(code)) codes.push(code);
+    if (isFullyOccupied(code) && code < mirrorCode(code)) codes.push(code);
   }
   if (codes.length !== TOTAL) throw new Error("unexpected orbit count");
 
@@ -77,7 +89,7 @@
     const id = "pattern-" + String(code).padStart(3, "0");
     return {
       id, generator_index: index, canonical_code: code, mirror_code: reversed,
-      grid_divisions: 4,
+      grid_divisions: 4, rhythm_mask: RHYTHM_MASK,
       pattern: asPattern(code, id),
       mirror_pattern: asPattern(reversed, id + "-mirror")
     };
@@ -86,7 +98,7 @@
   function fingerprint(candidate) {
     return JSON.stringify(candidate.pattern.notes);
   }
-  const api = {generate, fingerprint, mirrorCode, order, TOTAL, SLOTS, DEFAULT_CATEGORIES};
+  const api = {generate, fingerprint, mirrorCode, order, TOTAL, SLOTS, RHYTHM_MASK, DEFAULT_CATEGORIES};
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.PatternLabelerGenerator = api;
 })(globalThis);
