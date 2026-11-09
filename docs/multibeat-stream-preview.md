@@ -38,7 +38,7 @@
 3. 次のコマンドで実行。
 
 ```powershell
-go run . -pattern patterns/stream_120bpm_90sec_seed42.json -bpm 120 -speed 240
+go run . -pattern patterns/stream_120bpm_90sec_seed42.json -bpm 120 -speed 240 -keys 'A,D,;,]'
 ```
 
 この譜面はBPM120・180拍・1.5分・1059ノーツ・seed42、
@@ -67,3 +67,14 @@ go test ./...
 チャット添付の試遊JSONは独立に検証済み：720スロット全埋まり、
 隣接マスクAND=0、通常の同時押し位置制約または2-2-2-2例外、
 左右負荷ウィンドウ、tier比率に違反なし。
+
+## キーバインド
+
+デフォルトは従来どおりD/F/J/K。試遊ではフラグで変更可能：
+
+```bash
+go run . -pattern patterns/stream-preview.json -bpm 120 -keys 'A,D,;,]'
+```
+
+WSLのbashでは`;`がシェルのコマンド区切りにならないよう**全体を引用符で囲む**。対応キーは英字A〜Zと`;`・`]`。エイリアス`SEMICOLON`・`BRACKETRIGHT`も使える。
+キー名はEbitenのキー定数（キー配列によって実際の刻印と異なる可能性あり）。
