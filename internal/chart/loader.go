@@ -25,8 +25,9 @@ func Load(path string) (Pattern, error) {
 func decode(r io.Reader) (Pattern, error) {
 	// Pointers distinguish omitted/null fields from valid zero values.
 	var raw struct {
-		Name      *string         `json:"name"`
-		TimeScale json.RawMessage `json:"time_scale"`
+		Name        *string         `json:"name"`
+		TimeScale   json.RawMessage `json:"time_scale"`
+		LengthBeats json.RawMessage `json:"length_beats"`
 		Notes     *[]struct {
 			Lane     *int     `json:"lane"`
 			Position []*int64 `json:"position"`
@@ -56,6 +57,19 @@ func decode(r io.Reader) (Pattern, error) {
 			return Pattern{}, fmt.Errorf("decode time_scale: %w", err)
 		}
 	}
+	if raw.LengthBeats != nil {
+		if string(raw.LengthBeats) == "null" {
+			return Pattern{}, fmt.Errorf("length_beats must not be null")
+		}
+		if err := json.Unmarshal(raw.LengthBeats, &pattern.LengthBeats); err != nil {
+			return Pattern{}, fmt.Errorf("decode length_beats: %w", err)
+		}
+		if pattern.LengthBeats < 1 || pattern.LengthBeats > 1_000_000 {
+			return Pattern{}, fmt.Errorf("length_beats must be 1..1000000: %d", pattern.LengthBeats)
+		}
+	}
+	lengthBeats := pattern.LengthBeats
+	if lengthBeats == 0 { lengthBeats = 1 }
 	for i, note := range *raw.Notes {
 		if note.Lane == nil || note.Position == nil {
 			return Pattern{}, fmt.Errorf("note %d: lane and position are required and must not be null", i)
@@ -66,7 +80,7 @@ func decode(r io.Reader) (Pattern, error) {
 		if note.Position[0] == nil || note.Position[1] == nil {
 			return Pattern{}, fmt.Errorf("note %d: position elements must be integers and must not be null", i)
 		}
-		tick, err := positionToTick(*note.Position[0], *note.Position[1])
+		tick, err := positionToTickInBeats(*note.Position[0], *note.Position[1], lengthBeats)
 		if err != nil {
 			return Pattern{}, fmt.Errorf("note %d: %w", i, err)
 		}
@@ -82,12 +96,26 @@ func decode(r io.Reader) (Pattern, error) {
 
 // positionToTick converts a beat fraction to an original tick, independently of
 // time_scale. Big integers keep 960*numerator exact even near int64 limits.
+// positionToTick remains the one-beat compatibility helper.
 func positionToTick(numerator, denominator int64) (int64, error) {
+	return positionToTickInBeats(numerator, denominator, 1)
+}
+
+// positionToTickInBeats parses an absolute beat fraction in [0, lengthBeats).
+// Big integers prevent overflow in numerator * 960 and length * denominator.
+func positionToTickInBeats(numerator, denominator, lengthBeats int64) (int64, error) {
 	if denominator <= 0 {
 		return 0, fmt.Errorf("position denominator must be positive: %d", denominator)
 	}
-	if numerator < 0 || numerator >= denominator {
-		return 0, fmt.Errorf("position must satisfy 0 <= numerator < denominator: [%d, %d]", numerator, denominator)
+	if lengthBeats <= 0 || lengthBeats > 1_000_000 {
+		return 0, fmt.Errorf("invalid length_beats: %d", lengthBeats)
+	}
+	maxNumerator := new(big.Int).Mul(big.NewInt(denominator), big.NewInt(lengthBeats))
+	if numerator < 0 || big.NewInt(numerator).Cmp(maxNumerator) >= 0 {
+		if lengthBeats == 1 {
+			return 0, fmt.Errorf("position must satisfy 0 <= numerator < denominator: [%d, %d]", numerator, denominator)
+		}
+		return 0, fmt.Errorf("position must satisfy 0 <= numerator/denominator < length_beats (%d): [%d, %d]", lengthBeats, numerator, denominator)
 	}
 	product := new(big.Int).Mul(big.NewInt(TicksPerBeat), big.NewInt(numerator))
 	tick, remainder := new(big.Int), new(big.Int)
@@ -95,6 +123,5 @@ func positionToTick(numerator, denominator int64) (int64, error) {
 	if remainder.Sign() != 0 {
 		return 0, fmt.Errorf("position [%d, %d] must yield an integer original tick", numerator, denominator)
 	}
-	// The checked fraction is in [0, 1), so the quotient is in [0, 960).
 	return tick.Int64(), nil
 }
