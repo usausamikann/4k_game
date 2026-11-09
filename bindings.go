@@ -15,7 +15,7 @@ func parseBindings(text string) ([chart.LaneCount]ebiten.Key, error) {
 	var keys [chart.LaneCount]ebiten.Key
 	names := strings.Split(strings.ToUpper(text), ",")
 	if len(names) != chart.LaneCount {
-		return keys, fmt.Errorf("keys must contain four distinct A-Z letters")
+		return keys, fmt.Errorf("keys must contain four distinct supported keys (A-Z, ;, ])")
 	}
 	available := map[string]ebiten.Key{
 		"A": ebiten.KeyA,
@@ -45,6 +45,12 @@ func parseBindings(text string) ([chart.LaneCount]ebiten.Key, error) {
 		"Y": ebiten.KeyY,
 		"Z": ebiten.KeyZ,
 	}
+	// Punctuation is supported alongside the existing A-Z bindings.
+	// The symbolic aliases avoid confusing key names in command-line flags.
+	available[";"] = ebiten.KeySemicolon
+	available["SEMICOLON"] = ebiten.KeySemicolon
+	available["]"] = ebiten.KeyBracketRight
+	available["BRACKETRIGHT"] = ebiten.KeyBracketRight
 	used := map[ebiten.Key]bool{}
 	for lane, name := range names {
 		key, ok := available[strings.TrimSpace(name)]
