@@ -39,15 +39,15 @@ func TestPauseStateEscapeEdgesAndFocus(t *testing.T) {
 	}
 }
 
-func TestPauseStateFocusLossBeforeFirstPress(t *testing.T) {
+func TestPauseStateNoAutoPauseBeforeFirstFocus(t *testing.T) {
 	var p pauseState
-	p.Update(false, false)
+	p.Update(false, false) // Waiting for window to receive initial focus.
 	p.Update(true, false)
-	if !p.active {
-		t.Fatal("refocus must stay paused")
+	if p.active {
+		t.Fatal("startup without focus is not focus loss")
 	}
 	p.Update(true, true)
-	if p.active {
-		t.Fatal("Escape must resume after release")
+	if !p.active {
+		t.Fatal("first Escape after startup must pause")
 	}
 }
