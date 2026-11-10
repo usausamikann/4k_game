@@ -57,6 +57,7 @@ type game struct {
 	scroll      play.Scroll
 	keys        [chart.LaneCount]ebiten.Key
 	sudden      play.Sudden
+	pause       pauseState
 	hud         string
 	hudState    hudState
 	down        [chart.LaneCount]bool
@@ -91,13 +92,22 @@ func (g *game) Update() error {
 	for lane, key := range g.keys {
 		down[lane] = ebiten.IsKeyPressed(key)
 	}
-	return g.updateAt(time.Now(), ebiten.IsFocused(), down)
+	return g.updateWithPauseAt(time.Now(), ebiten.IsFocused(), down, ebiten.IsKeyPressed(ebiten.KeyEscape))
 }
+
+// updateAt preserves the existing deterministic test entry point without
+// simulating Escape; updateWithPauseAt also accepts the sampled Escape state.
 func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool) error {
+	return g.updateWithPauseAt(wall, focused, down, false)
+}
+
+func (g *game) updateWithPauseAt(wall time.Time, focused bool, down [chart.LaneCount]bool, escapeDown bool) error {
+	g.pause.Update(focused, escapeDown)
+	playing := focused && !g.pause.active
 	if g.debugAudio && g.metronome != nil {
 		g.metronome.EnableDiagnostics()
 	}
-	if g.metronome != nil && !g.metronome.UpdateAt(wall, focused) {
+	if g.metronome != nil && !g.metronome.UpdateAt(wall, playing) {
 		if g.keyPlayback != nil {
 			if err := g.keyPlayback.SetActive(false); err != nil {
 				return err
@@ -108,15 +118,15 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 	}
 
 	if g.keyPlayback != nil {
-		if err := g.keyPlayback.SetActive(focused); err != nil {
+		if err := g.keyPlayback.SetActive(playing); err != nil {
 			return err
 		}
 	}
 	g.down = down
-	if !focused {
+	if !playing {
 		g.down = [chart.LaneCount]bool{}
 	}
-	if err := g.session.UpdateAt(wall, focused, down); err != nil {
+	if err := g.session.UpdateAt(wall, playing, down); err != nil {
 		return err
 	}
 	phase, count := g.session.Timeline.Phase(g.session.Now)
@@ -162,7 +172,7 @@ func (g *game) Draw(screen *ebiten.Image) {
 		vector.FillRect(screen, x, 0, laneWidth, screenHeight, color.RGBA{R: 36, G: 42, B: 52, A: 255}, false)
 		vector.FillRect(screen, x, 0, 1, screenHeight, color.RGBA{R: 80, G: 90, B: 105, A: 255}, false)
 		if g.down[lane] {
-			vector.FillRect(screen, x, judgeY, laneWidth, screenHeight-judgeY, highlightColors[lane], false)
+			vector.FillRect(screen, x, 0, laneWidth, screenHeight, highlightColors[lane], false)
 		}
 	}
 	first, end := g.session.View.Range()
@@ -194,8 +204,30 @@ func (g *game) Draw(screen *ebiten.Image) {
 	if g.inputDebug != nil {
 		ebitenutil.DebugPrintAt(screen, g.inputDebug.Text(), laneLeft+laneWidth*chart.LaneCount+8, 0)
 	}
-
+	if g.pause.active {
+		g.drawPause(screen)
+	}
 }
+
+const (
+	pausePanelWidth  = 420
+	pausePanelHeight = 280
+	pausePanelX      = (screenWidth - pausePanelWidth) / 2
+	pausePanelY      = (screenHeight - pausePanelHeight) / 2
+)
+
+// This first Pause screen is deliberately read-only. Exit/Retry and interactive
+// settings are reserved for follow-up Step 6 changes.
+func (g *game) drawPause(screen *ebiten.Image) {
+	vector.FillRect(screen, 0, 0, screenWidth, screenHeight, color.NRGBA{R: 8, G: 10, B: 14, A: 170}, false)
+	vector.FillRect(screen, pausePanelX, pausePanelY, pausePanelWidth, pausePanelHeight, color.RGBA{R: 43, G: 48, B: 62, A: 255}, false)
+	vector.StrokeRect(screen, pausePanelX, pausePanelY, pausePanelWidth, pausePanelHeight, 1, color.RGBA{R: 130, G: 138, B: 154, A: 255}, false)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf(
+		"PAUSE\n\nSpeed: %g\nSUDDEN+: %.1f\n\nExit (not available)\nRetry (not available)\n\nEsc: Resume",
+		g.scroll.Speed, float64(g.sudden)/10,
+	), pausePanelX+32, pausePanelY+24)
+}
+
 func (*game) Layout(_, _ int) (int, int) { return screenWidth, screenHeight }
 
 func main() {
