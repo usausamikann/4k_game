@@ -7,15 +7,19 @@ type pauseState struct {
 	active        bool
 	escapeWasDown bool
 	escapeBlocked bool
+	everFocused   bool
 }
 
 func (p *pauseState) Update(focused, escapeDown bool) {
 	if !focused {
-		p.active = true
+		if p.everFocused {
+			p.active = true
+		}
 		p.escapeBlocked = true
 		p.escapeWasDown = escapeDown
 		return
 	}
+	p.everFocused = true
 	if p.escapeBlocked {
 		if !escapeDown {
 			p.escapeBlocked = false
