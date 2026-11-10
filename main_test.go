@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	metronome "github.com/usausamikann/4k_game/internal/audio"
 	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/judge"
 	"github.com/usausamikann/4k_game/internal/play"
@@ -143,12 +144,18 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		checkHighlight(laneLeft+2, judgeY+20, 0)
 		checkHighlight(laneLeft+laneWidth-1, judgeY+20, 0)
 		checkHighlight(laneLeft+laneWidth/2, screenHeight-1, 0)
-		check(laneLeft+laneWidth/2, judgeY-2, [4]byte{36, 42, 52, 255})
+		checkHighlight(laneLeft+laneWidth/2, judgeY-2, 0)
+		checkHighlight(laneLeft+laneWidth/2, 160, 0)
 		check(laneLeft+laneWidth+laneWidth/2, judgeY+20, [4]byte{36, 42, 52, 255})
 		if g.session.States[0] != judge.Hit || g.session.Statistics().Combo != 1 || g.session.Last.Rank != judge.PClean {
 			g.err = fmt.Errorf("hit/HUD integration failed: now=%v states=%v stats=%+v last=%+v", g.session.Now, g.session.States, g.session.Statistics(), g.session.Last)
 		}
 		g.sawHit = true
+		g.pause.active = true
+		g.game.Draw(screen)
+		read()
+		check(pausePanelX+15, pausePanelY+12, [4]byte{43, 48, 62, 255})
+		g.pause.active = false
 	case 4:
 		n := g.session.Chart.Notes[1]
 		check(laneLeft+laneWidth+laneWidth/2, int(g.scroll.Y(n.Time, g.session.VisualNow))+3, [4]byte{110, 55, 55, 255})
@@ -235,5 +242,90 @@ func TestTPSSetting(t *testing.T) {
 		if ebiten.TPS() != 240 {
 			t.Fatal("invalid setting changed target")
 		}
+	}
+}
+
+// pauseTestPlayer checks the same Transport interface used by production
+// without requiring an actual speaker or OS audio backend.
+type pauseTestPlayer struct {
+	plays, pauses int
+}
+
+func (p *pauseTestPlayer) Play()                   { p.plays++ }
+func (p *pauseTestPlayer) PauseAndStopReading()    { p.pauses++ }
+func (p *pauseTestPlayer) Position() time.Duration { return 0 }
+
+func TestManualPauseFreezesClockInputAndAudio(t *testing.T) {
+	for _, stage := range []struct {
+		name string
+		delta func(time.Duration) time.Duration
+	}{
+		{"COUNT", func(_ time.Duration) time.Duration { return 100 * time.Millisecond }},
+		{"SILENT", func(preparation time.Duration) time.Duration { return preparation / 2 }},
+		{"PLAY", func(preparation time.Duration) time.Duration { return preparation + 100*time.Millisecond }},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			g, err := newGame("patterns/sample.json", 120, 600, play.Offsets{}, 100)
+			if err != nil { t.Fatal(err) }
+			player := &pauseTestPlayer{}
+			g.metronome = metronome.NewTransport(player, func() bool { return true }, g.session.Timeline.Preparation)
+			start := time.Now()
+			update := func(delta time.Duration, focused, escape bool, down [4]bool) {
+				t.Helper()
+				if err := g.updateWithPauseAt(start.Add(delta), focused, down, escape); err != nil { t.Fatal(err) }
+			}
+			update(0, true, false, [4]bool{})
+			at := stage.delta(g.session.Timeline.Preparation)
+			update(at, true, true, [4]bool{})
+			if !g.pause.active || !g.session.Clock.Paused() { t.Fatal("Escape failed to pause") }
+			pausedNow := g.session.Now
+			stats := g.session.Statistics()
+			update(at+time.Hour, true, true, [4]bool{true})
+			if g.session.Now != pausedNow || g.session.Statistics() != stats || g.down[0] {
+				t.Fatal("pause advanced the clock/judgement or lit a held lane")
+			}
+			update(at+time.Hour+time.Millisecond, true, false, [4]bool{true})
+			update(at+time.Hour+2*time.Millisecond, true, true, [4]bool{true})
+			if g.pause.active || g.session.Clock.Paused() || g.session.Now != pausedNow {
+				t.Fatal("Escape resume did not preserve position")
+			}
+			if g.session.Statistics() != stats {
+				t.Fatal("held input on resume was judged")
+			}
+			if player.plays != 2 || player.pauses != 1 {
+				t.Fatalf("transport play/pause counts: %+v", player)
+			}
+			update(at+time.Hour+3*time.Millisecond, true, true, [4]bool{true})
+			if g.pause.active { t.Fatal("held Escape toggled twice") }
+			update(at+time.Hour+4*time.Millisecond, true, false, [4]bool{})
+			if g.session.Now <= pausedNow { t.Fatal("clock did not advance after resume") }
+		})
+	}
+}
+
+func TestFocusLossEntersPersistentPause(t *testing.T) {
+	g, err := newGame("patterns/sample.json", 120, 600, play.Offsets{}, 0)
+	if err != nil { t.Fatal(err) }
+	player := &pauseTestPlayer{}
+	g.metronome = metronome.NewTransport(player, func() bool { return true }, g.session.Timeline.Preparation)
+	start := time.Now()
+	step := func(ms int, focus, esc bool) {
+		t.Helper()
+		if err := g.updateWithPauseAt(start.Add(time.Duration(ms)*time.Millisecond), focus, [4]bool{}, esc); err != nil { t.Fatal(err) }
+	}
+	step(0, true, false)
+	step(100, false, true)
+	if !g.pause.active || !g.session.Clock.Paused() || player.pauses != 1 {
+		t.Fatal("focus loss did not pause")
+	}
+	at := g.session.Now
+	step(200, true, true)
+	step(300, true, false)
+	if !g.pause.active || g.session.Now != at || player.plays != 1 {
+		t.Fatal("refocus unexpectedly resumed")
+	}
+	step(400, true, true)
+	if g.pause.active || g.session.Now != at || player.plays != 2 {
+		t.Fatal("fresh Escape did not resume")
 	}
 }
