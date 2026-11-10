@@ -255,6 +255,15 @@ func (p *pauseTestPlayer) Play()                   { p.plays++ }
 func (p *pauseTestPlayer) PauseAndStopReading()    { p.pauses++ }
 func (p *pauseTestPlayer) Position() time.Duration { return 0 }
 
+type pauseTestKeyPlayer struct {
+	plays, pauses, rewinds int
+}
+
+func (p *pauseTestKeyPlayer) Play()                { p.plays++ }
+func (p *pauseTestKeyPlayer) PauseAndStopReading() { p.pauses++ }
+func (p *pauseTestKeyPlayer) Rewind() error        { p.rewinds++; return nil }
+func (p *pauseTestKeyPlayer) Close() error         { return nil }
+
 func TestManualPauseFreezesClockInputAndAudio(t *testing.T) {
 	for _, stage := range []struct {
 		name string
@@ -266,18 +275,26 @@ func TestManualPauseFreezesClockInputAndAudio(t *testing.T) {
 	} {
 		t.Run(stage.name, func(t *testing.T) {
 			g, err := newGame("patterns/sample.json", 120, 600, play.Offsets{}, 100)
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			player := &pauseTestPlayer{}
 			g.metronome = metronome.NewTransport(player, func() bool { return true }, g.session.Timeline.Preparation)
+			keyPlayer := &pauseTestKeyPlayer{}
+			g.keyPlayback = &metronome.KeyPlayback{Player: keyPlayer}
 			start := time.Now()
 			update := func(delta time.Duration, focused, escape bool, down [4]bool) {
 				t.Helper()
-				if err := g.updateWithPauseAt(start.Add(delta), focused, down, escape); err != nil { t.Fatal(err) }
+				if err := g.updateWithPauseAt(start.Add(delta), focused, down, escape); err != nil {
+					t.Fatal(err)
+				}
 			}
 			update(0, true, false, [4]bool{})
 			at := stage.delta(g.session.Timeline.Preparation)
 			update(at, true, true, [4]bool{})
-			if !g.pause.active || !g.session.Clock.Paused() { t.Fatal("Escape failed to pause") }
+			if !g.pause.active || !g.session.Clock.Paused() {
+				t.Fatal("Escape failed to pause")
+			}
 			pausedNow := g.session.Now
 			stats := g.session.Statistics()
 			update(at+time.Hour, true, true, [4]bool{true})
@@ -295,23 +312,34 @@ func TestManualPauseFreezesClockInputAndAudio(t *testing.T) {
 			if player.plays != 2 || player.pauses != 1 {
 				t.Fatalf("transport play/pause counts: %+v", player)
 			}
+			if keyPlayer.plays != 2 || keyPlayer.pauses != 1 || keyPlayer.rewinds != 1 {
+				t.Fatalf("keysound playback was not stopped/rewound on pause: %+v", keyPlayer)
+			}
 			update(at+time.Hour+3*time.Millisecond, true, true, [4]bool{true})
-			if g.pause.active { t.Fatal("held Escape toggled twice") }
+			if g.pause.active {
+				t.Fatal("held Escape toggled twice")
+			}
 			update(at+time.Hour+4*time.Millisecond, true, false, [4]bool{})
-			if g.session.Now <= pausedNow { t.Fatal("clock did not advance after resume") }
+			if g.session.Now <= pausedNow {
+				t.Fatal("clock did not advance after resume")
+			}
 		})
 	}
 }
 
 func TestFocusLossEntersPersistentPause(t *testing.T) {
 	g, err := newGame("patterns/sample.json", 120, 600, play.Offsets{}, 0)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	player := &pauseTestPlayer{}
 	g.metronome = metronome.NewTransport(player, func() bool { return true }, g.session.Timeline.Preparation)
 	start := time.Now()
 	step := func(ms int, focus, esc bool) {
 		t.Helper()
-		if err := g.updateWithPauseAt(start.Add(time.Duration(ms)*time.Millisecond), focus, [4]bool{}, esc); err != nil { t.Fatal(err) }
+		if err := g.updateWithPauseAt(start.Add(time.Duration(ms)*time.Millisecond), focus, [4]bool{}, esc); err != nil {
+			t.Fatal(err)
+		}
 	}
 	step(0, true, false)
 	step(100, false, true)
