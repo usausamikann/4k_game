@@ -754,3 +754,20 @@ timeline phase and verify that audio and visuals resume from the same point.
 - Unit tests cover the four palette mappings, centered geometry and alpha.
   The graphics-tag test checks inner/outer pixels, all four lanes, overlay
   visibility, and MISS preservation.
+
+### ビジュアルデザインの今後の検討事項（2026-11-16・未実装）
+
+現時点のレーン背景は `#111720`（暗い青黒）。ノーツは青・緑・黄・ピンクの
+4色を維持し、**外側が暗い本体色／内側が明るい中央帯**という二層構造を採用している。
+押下中のレーンハイライトはパステル色のまま不透明度約8%（`20/255`）。
+
+- **配色・スキンの追加候補**：現在の4レーン別色のほか、全レーンのノーツを同色にする配色、
+  内側2レーンと外側2レーンをそれぞれ同色にする配色などを検討する。
+  レーン背景も白を含め複数のパターンを追加する予定。
+  ただしノーツの**外側が暗く、内側が明るいデザインの骨組みは当面維持**する方針。
+  配色の選択UIや具体的なパレットの実装は今後の作業とする。
+- **全体のデザイン方向**：分かりやすさのため、レトロなUI表現を候補にしている。
+  参考例は [murasuke/legacy-react-form](https://github.com/murasuke/legacy-react-form)。
+  このプロジェクトはGo/Ebitengine製でReactは使用しておらず、あくまで
+  **見た目・デザインの参考資料**として挙げている。
+  レトロ化自体も仮案であり、具体的なデザインは後で比較・検討する。

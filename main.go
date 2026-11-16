@@ -173,7 +173,7 @@ func (g *game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{R: 24, G: 28, B: 36, A: 255})
 	for lane := 0; lane < chart.LaneCount; lane++ {
 		x := float32(laneLeft + lane*laneWidth)
-		vector.FillRect(screen, x, 0, laneWidth, screenHeight, color.RGBA{R: 36, G: 42, B: 52, A: 255}, false)
+		vector.FillRect(screen, x, 0, laneWidth, screenHeight, color.RGBA{R: 17, G: 23, B: 32, A: 255}, false)
 		vector.FillRect(screen, x, 0, 1, screenHeight, color.RGBA{R: 80, G: 90, B: 105, A: 255}, false)
 		if g.down[lane] {
 			vector.FillRect(screen, x, 0, laneWidth, screenHeight, highlightColors[lane], false)

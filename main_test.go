@@ -76,7 +76,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 	checkHighlight := func(x, y, lane int) {
 		i := (y*w + x) * 4
 		c := highlightColors[lane]
-		background := [3]byte{36, 42, 52}
+		background := [3]byte{17, 23, 32}
 		pastel := [3]byte{c.R, c.G, c.B}
 		for channel := 0; channel < 3; channel++ {
 			if pixels[i+channel] <= background[channel] || pixels[i+channel] >= pastel[channel] {
@@ -90,6 +90,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 	}
 	switch g.draws {
 	case 0:
+		check(laneLeft+laneWidth/2, 300, [4]byte{17, 23, 32, 255})
 		if now != -2666666667 || first != end {
 			g.err = fmt.Errorf("eight-beat preparation not initialized")
 		}
@@ -155,7 +156,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		checkHighlight(laneLeft+laneWidth/2, screenHeight-1, 0)
 		checkHighlight(laneLeft+laneWidth/2, judgeY-2, 0)
 		checkHighlight(laneLeft+laneWidth/2, 160, 0)
-		check(laneLeft+laneWidth+laneWidth/2, judgeY+20, [4]byte{36, 42, 52, 255})
+		check(laneLeft+laneWidth+laneWidth/2, judgeY+20, [4]byte{17, 23, 32, 255})
 		if g.session.States[0] != judge.Hit || g.session.Statistics().Combo != 1 || g.session.Last.Rank != judge.PClean {
 			g.err = fmt.Errorf("hit/HUD integration failed: now=%v states=%v stats=%+v last=%+v", g.session.Now, g.session.States, g.session.Statistics(), g.session.Last)
 		}
