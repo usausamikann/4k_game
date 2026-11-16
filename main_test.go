@@ -115,8 +115,14 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		}
 		g.inputDebug = nil
 	case 1:
-		c := noteColors[0]
-		check(laneLeft+laneWidth/2, 160, [4]byte{c.R, c.G, c.B, c.A})
+		visual := noteVisuals[0]
+		check(laneLeft+laneWidth/2, 160, [4]byte{visual.core.R, visual.core.G, visual.core.B, visual.core.A})
+		// The core is centered: left/right edges and top/bottom remain dark.
+		body := [4]byte{visual.body.R, visual.body.G, visual.body.B, visual.body.A}
+		check(laneLeft+6+7, 160, body)
+		check(laneLeft+6+64, 160, body)
+		check(laneLeft+laneWidth/2, 156, body)
+		check(laneLeft+laneWidth/2, 163, body)
 		g.sudden = 200
 		g.game.Draw(screen)
 		read()
@@ -134,9 +140,12 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 			g.err = fmt.Errorf("first note did not reach time zero")
 		}
 		for _, n := range g.session.Chart.Notes {
-			y := int(g.scroll.Y(n.Time, g.session.VisualNow)) + 3
-			c := noteColors[n.Lane]
-			check(laneLeft+n.Lane*laneWidth+laneWidth/2, y, [4]byte{c.R, c.G, c.B, c.A})
+			// The judgement line crosses lane 0 at y=400; sample below it.
+			centerY := int(g.scroll.Y(n.Time, g.session.VisualNow))
+			visual := noteVisuals[n.Lane]
+			x := laneLeft + n.Lane*laneWidth + laneWidth/2
+			check(x, centerY+1, [4]byte{visual.core.R, visual.core.G, visual.core.B, visual.core.A})
+			check(x, centerY+4, [4]byte{visual.body.R, visual.body.G, visual.body.B, visual.body.A})
 		}
 		g.inputDebug, _ = inputdebug.NewHUD(inputdebug.DefaultTPS)
 	case 3:

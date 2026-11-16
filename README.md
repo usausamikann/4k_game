@@ -736,3 +736,21 @@ title/result/retry screen.
 Verification: run `go test ./...`, `go test -tags=graphics ./...`,
 and cross-build for Windows; on Windows, test Esc/focus loss during each
 timeline phase and verify that audio and visuals resume from the same point.
+
+
+### Step 6 visual refinement (stacked on Pause PR #20)
+
+- Notes preserve the original four lane hues (blue, green, yellow and pink).
+  Each normally pending note uses the same **two rectangles**: a dark body
+  (40% of the original channel brightness) and a bright inner band retaining
+  the original lane RGB. No border or texture is required.
+- The note silhouette remains 72 x 12 pixels. The 56 x 6 pixel inner band is
+  centered, leaving 8px horizontally and 3px vertically on each side.
+  Resolved MISS notes retain the existing flat dark-red appearance.
+- Held lanes still highlight their full vertical extent, with the same
+  pastel hues but **alpha 20/255 (~8%) instead of 64/255 (~25%)**.
+- Scrolling, HIT/MISS results, the SUDDEN+ cover, Pause behavior, note
+  positions, input bindings, audio and timing windows are unchanged.
+- Unit tests cover the four palette mappings, centered geometry and alpha.
+  The graphics-tag test checks inner/outer pixels, all four lanes, overlay
+  visibility, and MISS preservation.

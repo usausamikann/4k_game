@@ -31,16 +31,20 @@ var noteColors = [chart.LaneCount]color.RGBA{
 	{R: 255, G: 205, B: 110, A: 255}, {R: 235, G: 150, B: 235, A: 255},
 }
 
-// Pastel lane colors at 25% opacity, drawn behind notes and the judge line.
+// Use the same two-layer silhouette for every lane; only the palette changes.
+var noteVisuals = func() [chart.LaneCount]noteVisual {
+	var styles [chart.LaneCount]noteVisual
+	for lane, c := range noteColors {
+		styles[lane] = newNoteVisual(c)
+	}
+	return styles
+}()
+
+// Keep the pastel hue but reduce the full-lane press highlight to ~8%.
 var highlightColors = func() [chart.LaneCount]color.NRGBA {
 	var colors [chart.LaneCount]color.NRGBA
 	for lane, c := range noteColors {
-		colors[lane] = color.NRGBA{
-			R: uint8((uint16(c.R) + 255) / 2),
-			G: uint8((uint16(c.G) + 255) / 2),
-			B: uint8((uint16(c.B) + 255) / 2),
-			A: 64,
-		}
+		colors[lane] = pressedLaneColor(c)
 	}
 	return colors
 }()
@@ -183,12 +187,8 @@ func (g *game) Draw(screen *ebiten.Image) {
 			if g.session.States[index] == judge.Hit {
 				continue
 			}
-			noteColor := noteColors[n.Lane]
-			if g.session.States[index] == judge.Miss {
-				noteColor = color.RGBA{R: 110, G: 55, B: 55, A: 255}
-			}
 			x := float32(laneLeft + n.Lane*laneWidth + 6)
-			vector.FillRect(screen, x, y, laneWidth-12, noteHeight, noteColor, false)
+			drawNote(screen, x, y, n.Lane, g.session.States[index])
 		}
 	}
 	// Cover notes only inside the lane rectangle; judgement is unaffected.
@@ -207,6 +207,21 @@ func (g *game) Draw(screen *ebiten.Image) {
 	if g.pause.active {
 		g.drawPause(screen)
 	}
+}
+
+// Draw a dark base with a centered, bright band in the original lane color.
+// Keep MISS as a single dark-red rectangle to distinguish resolved misses.
+func drawNote(screen *ebiten.Image, x, y float32, lane int, state judge.State) {
+	const width = float32(laneWidth - 12)
+	const height = float32(noteHeight)
+	if state == judge.Miss {
+		vector.FillRect(screen, x, y, width, height, color.RGBA{R: 110, G: 55, B: 55, A: 255}, false)
+		return
+	}
+	visual := noteVisuals[lane]
+	vector.FillRect(screen, x, y, width, height, visual.body, false)
+	coreX, coreY := centeredNoteCore(x, y, width, height)
+	vector.FillRect(screen, coreX, coreY, noteCoreWidth, noteCoreHeight, visual.core, false)
 }
 
 const (
