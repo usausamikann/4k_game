@@ -709,3 +709,30 @@ Step 4.5 は [入力計測と将来イベント設計メモ](memo/4k_game_step45
 Step 5 は [メトロノーム引き継ぎ仕様](memo/4k_game_step5_metronome_handoff_20261018.md)を優先。
 Step 5.5は[確定仕様と実装メモ](memo/4k_game_step55_implemented_20261019.md)を参照。
 Step 6は結果画面、Step 7はパターン連結。既存の `memo/` はそのまま保持する。
+
+
+## Step 6 (incremental): Pause overlay and full-lane input highlights
+
+This is an intermediate Step 6 implementation on top of PR #19, not a completed
+title/result/retry screen.
+
+- Press **Esc** during COUNT, SILENT, or PLAY to open a centered Pause panel;
+  release and press Esc again to resume from the same position.
+- Losing window focus **enters Pause permanently**. Refocusing alone does not
+  restart playback; press Esc after refocusing. A held Esc across a focus
+  transition cannot trigger an accidental resume.
+- While paused, the game clock, scroll, judgement/MISS updates, metronome,
+  keysounds, and lane press indicators stop. Resume preserves the existing
+  countdown or song position; it does not restart the COUNT sequence.
+- The read-only panel currently shows **Speed** (pixels/second) and
+  **SUDDEN+** (0.0–40.0). **Exit** and **Retry** are visible placeholders
+  with no action. Editing settings, click targets, actual exit/retry, and the
+  planned top-left Pause button are deferred.
+- A pressed lane now highlights its **entire vertical extent** (apart from
+  the SUDDEN+ region that remains visually covered), rather than only
+  the area below the judgement line.
+- Input bindings, BPM, timing windows, and the CLI arguments are unchanged.
+
+Verification: run `go test ./...`, `go test -tags=graphics ./...`,
+and cross-build for Windows; on Windows, test Esc/focus loss during each
+timeline phase and verify that audio and visuals resume from the same point.
