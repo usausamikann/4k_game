@@ -25,6 +25,9 @@ type Note struct {
 
 type Pattern struct {
 	Name string `json:"name"`
+	// LengthBeats is optional: zero means one beat for backward compatibility.
+	// A multi-beat chart uses original absolute ticks relative to its start.
+	LengthBeats int64 `json:"length_beats,omitempty"`
 	// TimeScale is the speed multiplier minus one: 0 = normal, 1 = double density.
 	TimeScale int64  `json:"time_scale"`
 	Notes     []Note `json:"notes"`
@@ -84,12 +87,16 @@ func validatedNotes(pattern Pattern) ([]Note, error) {
 	if err != nil {
 		return nil, err
 	}
+	length, err := originalLengthTicks(pattern)
+	if err != nil {
+		return nil, err
+	}
 	for i, note := range pattern.Notes {
 		if note.Lane < 0 || note.Lane >= LaneCount {
 			return nil, fmt.Errorf("note %d: lane must be 0..3: %d", i, note.Lane)
 		}
-		if note.Tick < 0 || note.Tick >= TicksPerBeat {
-			return nil, fmt.Errorf("note %d: tick must be 0..%d: %d", i, TicksPerBeat-1, note.Tick)
+		if note.Tick < 0 || note.Tick >= length {
+			return nil, fmt.Errorf("note %d: tick must be 0..%d: %d", i, length-1, note.Tick)
 		}
 		if _, err := effectiveTick(note.Tick, divisor); err != nil {
 			return nil, fmt.Errorf("note %d: %w", i, err)
@@ -108,6 +115,17 @@ func validatedNotes(pattern Pattern) ([]Note, error) {
 		}
 	}
 	return notes, nil
+}
+
+// originalLengthTicks defaults to one beat for legacy patterns. A limit avoids
+// overflowing tick arithmetic and accidental huge allocations in the loader.
+func originalLengthTicks(pattern Pattern) (int64, error) {
+	beats := pattern.LengthBeats
+	if beats == 0 { beats = 1 }
+	if beats < 0 || beats > 1_000_000 {
+		return 0, fmt.Errorf("length_beats must be 1..1000000: %d", beats)
+	}
+	return beats * TicksPerBeat, nil
 }
 
 // speedMultiplier keeps the supported scale policy separate from tick conversion.
@@ -136,7 +154,9 @@ func EffectiveLengthTicks(pattern Pattern) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return effectiveTick(TicksPerBeat, divisor)
+	length, err := originalLengthTicks(pattern)
+	if err != nil { return 0, err }
+	return effectiveTick(length, divisor)
 }
 
 // EndTime converts the exclusive end tick directly with TickToTime's rounding.
@@ -162,7 +182,9 @@ func Schedule(pattern Pattern, bpm float64) ([]ScheduledNote, error) {
 	if err != nil {
 		return nil, err
 	}
-	length, err := effectiveTick(TicksPerBeat, divisor)
+	originalLength, err := originalLengthTicks(pattern)
+	if err != nil { return nil, err }
+	length, err := effectiveTick(originalLength, divisor)
 	if err != nil {
 		return nil, err
 	}

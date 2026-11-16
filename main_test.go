@@ -196,6 +196,20 @@ func TestKeyBindings(t *testing.T) {
 	if _, err := parseBindings("A,S,L,P"); err != nil {
 		t.Fatal(err)
 	}
+	punctuation, err := parseBindings("a,d,;,]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if punctuation != ([4]ebiten.Key{ebiten.KeyA, ebiten.KeyD, ebiten.KeySemicolon, ebiten.KeyBracketRight}) {
+		t.Fatalf("punctuation binding = %v", punctuation)
+	}
+	aliases, err := parseBindings("A,D,semicolon,bracketright")
+	if err != nil || aliases != punctuation {
+		t.Fatalf("punctuation aliases = %v, error = %v", aliases, err)
+	}
+	if _, err := parseBindings("A,D,;,SEMICOLON"); err == nil {
+		t.Fatal("duplicate symbolic punctuation key accepted")
+	}
 	for _, text := range []string{"D,D,J,K", "D,F,J", "D,F,J,???"} {
 		if _, err := parseBindings(text); err == nil {
 			t.Fatal("invalid binding accepted")
