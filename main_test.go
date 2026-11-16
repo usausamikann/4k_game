@@ -76,7 +76,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 	checkHighlight := func(x, y, lane int) {
 		i := (y*w + x) * 4
 		c := highlightColors[lane]
-		background := [3]byte{36, 42, 52}
+		background := [3]byte{17, 23, 32}
 		pastel := [3]byte{c.R, c.G, c.B}
 		for channel := 0; channel < 3; channel++ {
 			if pixels[i+channel] <= background[channel] || pixels[i+channel] >= pastel[channel] {
@@ -90,6 +90,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 	}
 	switch g.draws {
 	case 0:
+		check(laneLeft+laneWidth/2, 300, [4]byte{17, 23, 32, 255})
 		if now != -2666666667 || first != end {
 			g.err = fmt.Errorf("eight-beat preparation not initialized")
 		}
@@ -115,8 +116,14 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		}
 		g.inputDebug = nil
 	case 1:
-		c := noteColors[0]
-		check(laneLeft+laneWidth/2, 160, [4]byte{c.R, c.G, c.B, c.A})
+		visual := noteVisuals[0]
+		check(laneLeft+laneWidth/2, 160, [4]byte{visual.core.R, visual.core.G, visual.core.B, visual.core.A})
+		// The core is centered: left/right edges and top/bottom remain dark.
+		body := [4]byte{visual.body.R, visual.body.G, visual.body.B, visual.body.A}
+		check(laneLeft+6+7, 160, body)
+		check(laneLeft+6+64, 160, body)
+		check(laneLeft+laneWidth/2, 156, body)
+		check(laneLeft+laneWidth/2, 163, body)
 		g.sudden = 200
 		g.game.Draw(screen)
 		read()
@@ -134,9 +141,12 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 			g.err = fmt.Errorf("first note did not reach time zero")
 		}
 		for _, n := range g.session.Chart.Notes {
-			y := int(g.scroll.Y(n.Time, g.session.VisualNow)) + 3
-			c := noteColors[n.Lane]
-			check(laneLeft+n.Lane*laneWidth+laneWidth/2, y, [4]byte{c.R, c.G, c.B, c.A})
+			// The judgement line crosses lane 0 at y=400; sample below it.
+			centerY := int(g.scroll.Y(n.Time, g.session.VisualNow))
+			visual := noteVisuals[n.Lane]
+			x := laneLeft + n.Lane*laneWidth + laneWidth/2
+			check(x, centerY+1, [4]byte{visual.core.R, visual.core.G, visual.core.B, visual.core.A})
+			check(x, centerY+4, [4]byte{visual.body.R, visual.body.G, visual.body.B, visual.body.A})
 		}
 		g.inputDebug, _ = inputdebug.NewHUD(inputdebug.DefaultTPS)
 	case 3:
@@ -146,7 +156,7 @@ func (g *windowCheck) Draw(screen *ebiten.Image) {
 		checkHighlight(laneLeft+laneWidth/2, screenHeight-1, 0)
 		checkHighlight(laneLeft+laneWidth/2, judgeY-2, 0)
 		checkHighlight(laneLeft+laneWidth/2, 160, 0)
-		check(laneLeft+laneWidth+laneWidth/2, judgeY+20, [4]byte{36, 42, 52, 255})
+		check(laneLeft+laneWidth+laneWidth/2, judgeY+20, [4]byte{17, 23, 32, 255})
 		if g.session.States[0] != judge.Hit || g.session.Statistics().Combo != 1 || g.session.Last.Rank != judge.PClean {
 			g.err = fmt.Errorf("hit/HUD integration failed: now=%v states=%v stats=%+v last=%+v", g.session.Now, g.session.States, g.session.Statistics(), g.session.Last)
 		}
