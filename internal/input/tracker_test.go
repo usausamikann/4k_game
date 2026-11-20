@@ -83,3 +83,88 @@ func TestSampleEdgesShortTapAndRapidRepress(t *testing.T) {
 		t.Fatalf("same-tick release+repress dropped: %+v", dst)
 	}
 }
+
+func TestConsumeRawTimestampOrderRepeatAndFocus(t *testing.T) {
+	base := time.Now()
+	conv := func(w time.Time) (time.Duration, error) { return w.Sub(base), nil }
+	var tr Tracker
+	if _, err := tr.ConsumeRaw(true, nil, conv, 0, 0, false, nil); err != nil { t.Fatal(err) }
+	batch := []RawEvent{
+		{Lane: 0, Wall: base.Add(2*time.Millisecond), Kind: judge.Press},
+		{Lane: 0, Wall: base.Add(3*time.Millisecond), Kind: judge.Press},
+		{Lane: 0, Wall: base.Add(5*time.Millisecond), Kind: judge.Release},
+		{Lane: 0, Wall: base.Add(8*time.Millisecond), Kind: judge.Press},
+	}
+	got, err := tr.ConsumeRaw(true, batch, conv, 0, 10*time.Millisecond, true, nil)
+	if err != nil || len(got) != 3 ||
+		got[0].Time != 2*time.Millisecond || got[0].Kind != judge.Press ||
+		got[1].Time != 5*time.Millisecond || got[1].Kind != judge.Release ||
+		got[2].Time != 8*time.Millisecond || got[2].Kind != judge.Press {
+		t.Fatalf("raw edge order or repeat filter: %+v, %v", got, err)
+	}
+	got, err = tr.ConsumeRaw(false, nil, conv, 10*time.Millisecond, 11*time.Millisecond, true, nil)
+	if err != nil || len(got) != 1 || got[0].Kind != judge.Release {
+		t.Fatalf("focus loss must release held key: %+v, %v", got, err)
+	}
+	// A held key remains blocked on regain.
+	got, err = tr.ConsumeRaw(true, []RawEvent{
+		{Lane: 0, Wall: base.Add(12*time.Millisecond), Kind: judge.Press},
+	}, conv, 11*time.Millisecond, 13*time.Millisecond, true, nil)
+	if err != nil || len(got) != 0 { t.Fatalf("held key judged on resume: %+v, %v", got, err) }
+	// It can be judged again after an actual release.
+	got, err = tr.ConsumeRaw(true, []RawEvent{
+		{Lane: 0, Wall: base.Add(14*time.Millisecond), Kind: judge.Release},
+		{Lane: 0, Wall: base.Add(15*time.Millisecond), Kind: judge.Press},
+	}, conv, 13*time.Millisecond, 16*time.Millisecond, true, nil)
+	if err != nil || len(got) != 1 || got[0].Kind != judge.Press {
+		t.Fatalf("fresh press after held release: %+v, %v", got, err)
+	}
+}
+func TestRawFirstRegainBatchAndOverflowResync(t *testing.T) {
+	base := time.Now()
+	conv := func(w time.Time) (time.Duration, error) { return w.Sub(base), nil }
+	var tr Tracker
+	if _, err := tr.ConsumeRaw(true, nil, conv, 0, 0, false, nil); err != nil { t.Fatal(err) }
+	if _, err := tr.ConsumeRaw(false, nil, conv, 0, time.Millisecond, true, nil); err != nil { t.Fatal(err) }
+	got, err := tr.ConsumeRaw(true, []RawEvent{
+		{Lane: 1, Wall: base.Add(2*time.Millisecond), Kind: judge.Press},
+	}, conv, time.Millisecond, 3*time.Millisecond, true, nil)
+	if err != nil || len(got) != 1 || got[0].Lane != 1 || got[0].Kind != judge.Press {
+		t.Fatalf("new press in first resume batch was dropped: %+v %v", got, err)
+	}
+	var q rawQueue
+	for i := 0; i <= rawQueueCapacity; i++ {
+		q.push(RawEvent{Lane: 0, Wall: base.Add(time.Duration(i)*time.Microsecond), Kind: judge.Press})
+	}
+	pending, lost, down := q.drainUpTo(base.Add(time.Second), nil)
+	if lost == 0 || len(pending) != 0 || !down[0] {
+		t.Fatalf("overflow must trigger resync, got lost=%d batch=%d down=%v", lost, len(pending), down)
+	}
+	tr.Sample(true, [chart.LaneCount]bool{}, 0, nil)
+	tr.Sample(true, [chart.LaneCount]bool{true}, time.Millisecond, nil)
+	released := tr.ResyncRaw(true, down, 2*time.Millisecond, nil)
+	if len(released) == 0 || tr.Pressed()[0] {
+		t.Fatalf("resync did not clear held gameplay key: %+v", released)
+	}
+	events, err := tr.ConsumeRaw(true, []RawEvent{
+		{Lane: 0, Wall: base.Add(3*time.Millisecond), Kind: judge.Release},
+		{Lane: 0, Wall: base.Add(4*time.Millisecond), Kind: judge.Press},
+	}, conv, 2*time.Millisecond, 5*time.Millisecond, true, nil)
+	if err != nil || len(events) != 1 || events[0].Kind != judge.Press {
+		t.Fatalf("resync did not recover after release: %+v, %v", events, err)
+	}
+}
+func TestRawQueueDefersFutureEvents(t *testing.T) {
+	base := time.Now()
+	var q rawQueue
+	q.push(RawEvent{Lane: 0, Wall: base.Add(2*time.Millisecond), Kind: judge.Press})
+	q.push(RawEvent{Lane: 1, Wall: base.Add(20*time.Millisecond), Kind: judge.Press})
+	got, lost, _ := q.drainUpTo(base.Add(10*time.Millisecond), nil)
+	if lost != 0 || len(got) != 1 || got[0].Lane != 0 {
+		t.Fatalf("unexpected first batch: %+v lost=%d", got, lost)
+	}
+	got, lost, _ = q.drainUpTo(base.Add(25*time.Millisecond), nil)
+	if lost != 0 || len(got) != 1 || got[0].Lane != 1 {
+		t.Fatalf("future event was not retained: %+v lost=%d", got, lost)
+	}
+}
