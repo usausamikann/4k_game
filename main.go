@@ -9,9 +9,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	metronome "github.com/usausamikann/4k_game/internal/audio"
 	"github.com/usausamikann/4k_game/internal/chart"
+	"github.com/usausamikann/4k_game/internal/input"
 	"github.com/usausamikann/4k_game/internal/inputdebug"
 	"github.com/usausamikann/4k_game/internal/judge"
 	"github.com/usausamikann/4k_game/internal/play"
@@ -92,11 +94,17 @@ func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.
 	return &game{session: session, scroll: scroll, sudden: sudden, keys: defaultBindings()}, nil
 }
 func (g *game) Update() error {
-	var down [chart.LaneCount]bool
+	wall := time.Now()
+	var samples [chart.LaneCount]input.KeySample
 	for lane, key := range g.keys {
-		down[lane] = ebiten.IsKeyPressed(key)
+		samples[lane] = input.KeySample{
+			Down: ebiten.IsKeyPressed(key),
+			JustPressed: inpututil.IsKeyJustPressed(key),
+			JustReleased: inpututil.IsKeyJustReleased(key),
+			StillDown: inpututil.KeyPressDuration(key) > 0,
+		}
 	}
-	return g.updateWithPauseAt(time.Now(), ebiten.IsFocused(), down, ebiten.IsKeyPressed(ebiten.KeyEscape))
+	return g.updateWithEdgesAt(wall, ebiten.IsFocused(), samples, ebiten.IsKeyPressed(ebiten.KeyEscape))
 }
 
 // updateAt preserves the existing deterministic test entry point without
@@ -106,6 +114,26 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 }
 
 func (g *game) updateWithPauseAt(wall time.Time, focused bool, down [chart.LaneCount]bool, escapeDown bool) error {
+	return g.updateFrame(wall, focused, escapeDown, func(playing bool) error {
+		g.down = down
+		if !playing {
+			g.down = [chart.LaneCount]bool{}
+		}
+		return g.session.UpdateAt(wall, playing, down)
+	})
+}
+
+func (g *game) updateWithEdgesAt(wall time.Time, focused bool, samples [chart.LaneCount]input.KeySample, escapeDown bool) error {
+	return g.updateFrame(wall, focused, escapeDown, func(playing bool) error {
+		if err := g.session.UpdateWithEdgesAt(wall, playing, samples); err != nil {
+			return err
+		}
+		g.down = g.session.Pressed()
+		return nil
+	})
+}
+
+func (g *game) updateFrame(wall time.Time, focused, escapeDown bool, step func(playing bool) error) error {
 	g.pause.Update(focused, escapeDown)
 	playing := focused && !g.pause.active
 	if g.debugAudio && g.metronome != nil {
@@ -126,11 +154,7 @@ func (g *game) updateWithPauseAt(wall time.Time, focused bool, down [chart.LaneC
 			return err
 		}
 	}
-	g.down = down
-	if !playing {
-		g.down = [chart.LaneCount]bool{}
-	}
-	if err := g.session.UpdateAt(wall, playing, down); err != nil {
+	if err := step(playing); err != nil {
 		return err
 	}
 	phase, count := g.session.Timeline.Phase(g.session.Now)

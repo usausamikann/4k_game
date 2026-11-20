@@ -58,3 +58,28 @@ func TestInitiallyHeldAndUndetectablePulse(t *testing.T) {
 		t.Fatal("fabricated unseen event")
 	}
 }
+
+func TestSampleEdgesShortTapAndRapidRepress(t *testing.T) {
+	var tkr Tracker
+	dst := make([]judge.Event, 0, 8)
+	dst = tkr.SampleEdges(true, [4]KeySample{}, 0, dst)
+
+	// Press and release within a single tick (IsKeyPressed=true, Duration=0).
+	tap := [4]KeySample{{Down: true, JustPressed: true, JustReleased: true, StillDown: false}}
+	dst = tkr.SampleEdges(true, tap, 10*time.Millisecond, dst)
+	if len(dst) != 2 || dst[0].Kind != judge.Press || dst[1].Kind != judge.Release || tkr.Pressed()[0] {
+		t.Fatalf("short tap not split into Press+Release: %+v pressed=%v", dst, tkr.Pressed())
+	}
+
+	// Hold lane 0, then release and repress inside one tick.
+	hold := [4]KeySample{{Down: true, JustPressed: true, StillDown: true}}
+	dst = tkr.SampleEdges(true, hold, 20*time.Millisecond, dst)
+	if len(dst) != 1 || dst[0].Kind != judge.Press || !tkr.Pressed()[0] {
+		t.Fatalf("hold start: %+v", dst)
+	}
+	repress := [4]KeySample{{Down: true, JustPressed: true, JustReleased: true, StillDown: true}}
+	dst = tkr.SampleEdges(true, repress, 30*time.Millisecond, dst)
+	if len(dst) != 2 || dst[0].Kind != judge.Release || dst[1].Kind != judge.Press || !tkr.Pressed()[0] {
+		t.Fatalf("same-tick release+repress dropped: %+v", dst)
+	}
+}
