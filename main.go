@@ -60,21 +60,21 @@ type hudState struct {
 	count  int
 }
 type game struct {
-	session     *play.Session
-	scroll      play.Scroll
-	keys        [chart.LaneCount]ebiten.Key
-	sudden      play.Sudden
-	pause       pauseState
-	hud         string
-	hudState    hudState
-	down        [chart.LaneCount]bool
-	inputDebug  *inputdebug.HUD
-	metronome   *metronome.Transport
-	keyPlayback *metronome.KeyPlayback
-	debugAudio  bool
-	audioHUD    string
-	rawInput    *input.RawReader
-	rawBuf      []input.RawEvent
+	session           *play.Session
+	scroll            play.Scroll
+	keys              [chart.LaneCount]ebiten.Key
+	sudden            play.Sudden
+	pause             pauseState
+	hud               string
+	hudState          hudState
+	down              [chart.LaneCount]bool
+	inputDebug        *inputdebug.HUD
+	metronome         *metronome.Transport
+	keyPlayback       *metronome.KeyPlayback
+	debugAudio        bool
+	audioHUD          string
+	rawInput          *input.RawReader
+	rawBuf            []input.RawEvent
 	lastRawReadErrors uint64
 }
 
@@ -117,10 +117,10 @@ func (g *game) Update() error {
 	var samples [chart.LaneCount]input.KeySample
 	for lane, key := range g.keys {
 		samples[lane] = input.KeySample{
-			Down: ebiten.IsKeyPressed(key),
-			JustPressed: inpututil.IsKeyJustPressed(key),
+			Down:         ebiten.IsKeyPressed(key),
+			JustPressed:  inpututil.IsKeyJustPressed(key),
 			JustReleased: inpututil.IsKeyJustReleased(key),
-			StillDown: inpututil.KeyPressDuration(key) > 0,
+			StillDown:    inpututil.KeyPressDuration(key) > 0,
 		}
 	}
 	return g.updateWithEdgesAt(wall, focused, samples, escapeDown)

@@ -203,8 +203,8 @@ func (t *Tracker) ConsumeRaw(
 	return dst, nil
 }
 
- // ResyncRaw recovers from an incomplete OS event batch. Existing game presses
- // are released; any physically held keys remain blocked until their release.
+// ResyncRaw recovers from an incomplete OS event batch. Existing game presses
+// are released; any physically held keys remain blocked until their release.
 func (t *Tracker) ResyncRaw(focused bool, down [chart.LaneCount]bool, at time.Duration, dst []judge.Event) []judge.Event {
 	dst = dst[:0]
 	for lane, pressed := range t.pressed {

@@ -120,12 +120,12 @@ var (
 // RawReader listens for Windows WM_INPUT keyboard events on a dedicated OS
 // thread and stamps each Make/Break transition with time.Now() on receipt.
 type RawReader struct {
-	scanCodes [chart.LaneCount]uint16
-	queue     rawQueue
-	hwnd      atomic.Uintptr
-	closeOnce sync.Once
+	scanCodes  [chart.LaneCount]uint16
+	queue      rawQueue
+	hwnd       atomic.Uintptr
+	closeOnce  sync.Once
 	readErrors atomic.Uint64
-	done chan struct{}
+	done       chan struct{}
 }
 
 func NewRawReader(scanCodes [chart.LaneCount]uint16) (*RawReader, error) {

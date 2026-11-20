@@ -18,4 +18,4 @@ func (*RawReader) DrainUpTo(time.Time, []RawEvent) ([]RawEvent, uint64, [chart.L
 	return nil, 0, [chart.LaneCount]bool{}
 }
 func (*RawReader) FailedReads() uint64 { return 0 }
-func (*RawReader) Close() error                                { return nil }
+func (*RawReader) Close() error        { return nil }

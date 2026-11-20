@@ -15,11 +15,11 @@ var ErrRawInputUnsupported = errors.New("raw keyboard input unsupported on this 
 const rawQueueCapacity = 1024
 
 type rawQueue struct {
-	mu sync.Mutex
-	buf [rawQueueCapacity]RawEvent
+	mu          sync.Mutex
+	buf         [rawQueueCapacity]RawEvent
 	head, count int
-	dropped uint64
-	physDown [chart.LaneCount]bool
+	dropped     uint64
+	physDown    [chart.LaneCount]bool
 }
 
 func (q *rawQueue) push(ev RawEvent) {
