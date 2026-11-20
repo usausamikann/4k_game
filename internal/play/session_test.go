@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/usausamikann/4k_game/internal/chart"
+	"github.com/usausamikann/4k_game/internal/input"
 	"github.com/usausamikann/4k_game/internal/judge"
 )
 
@@ -269,5 +270,30 @@ func TestOneBeatTimeScaleSession(t *testing.T) {
 				t.Fatalf("stats = %+v", stats)
 			}
 		})
+	}
+}
+
+func TestSessionRawBatchedPressReleasePress(t *testing.T) {
+	notes := []chart.ScheduledNote{
+		{ID: 10, Lane: 0, Time: time.Second, AbsoluteTick: 960},
+		{ID: 11, Lane: 0, Time: 1100 * time.Millisecond, AbsoluteTick: 1056},
+	}
+	s := makeSession(t, notes, Offsets{})
+	start := time.Now()
+	if err := s.UpdateWithRawAt(start, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	zero := start.Add(s.Timeline.Preparation)
+	events := []input.RawEvent{
+		{Lane: 0, Wall: zero.Add(time.Second), Kind: judge.Press},
+		{Lane: 0, Wall: zero.Add(1050 * time.Millisecond), Kind: judge.Release},
+		{Lane: 0, Wall: zero.Add(1100 * time.Millisecond), Kind: judge.Press},
+	}
+	if err := s.UpdateWithRawAt(zero.Add(1200*time.Millisecond), true, events); err != nil {
+		t.Fatal(err)
+	}
+	stats := s.Statistics()
+	if stats.PClean != 2 || stats.Miss != 0 || stats.EmptyPresses != 0 {
+		t.Fatalf("batched raw input changed two note outcomes: %+v", stats)
 	}
 }
