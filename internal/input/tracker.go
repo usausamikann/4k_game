@@ -162,14 +162,15 @@ func (t *Tracker) ConsumeRaw(
 			}
 		}
 		t.pressed = [chart.LaneCount]bool{}
+		t.blocked = t.physDown
 		t.focused = false
 		return dst, nil
 	}
 	if !t.focused {
-		t.SyncRaw(raw)
+		// Do not drop fresh presses from the first resumed batch.
+		// Keys held throughout the inactive interval remain blocked.
 		t.blocked = t.physDown
 		t.focused = true
-		return dst, nil
 	}
 	for _, ev := range raw {
 		if ev.Lane < 0 || ev.Lane >= chart.LaneCount {
@@ -200,4 +201,20 @@ func (t *Tracker) ConsumeRaw(
 		t.pressed[ev.Lane] = isPress
 	}
 	return dst, nil
+}
+
+ // ResyncRaw recovers from an incomplete OS event batch. Existing game presses
+ // are released; any physically held keys remain blocked until their release.
+func (t *Tracker) ResyncRaw(focused bool, down [chart.LaneCount]bool, at time.Duration, dst []judge.Event) []judge.Event {
+	dst = dst[:0]
+	for lane, pressed := range t.pressed {
+		if pressed {
+			dst = append(dst, judge.Event{Lane: lane, Time: at, Kind: judge.Release})
+		}
+	}
+	t.pressed = [chart.LaneCount]bool{}
+	t.physDown = down
+	t.blocked = down
+	t.focused = focused
+	return dst
 }
