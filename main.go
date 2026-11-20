@@ -143,7 +143,7 @@ func (g *game) updateWithPauseAt(wall time.Time, focused bool, down [chart.LaneC
 }
 
 func (g *game) updateWithEdgesAt(wall time.Time, focused bool, samples [chart.LaneCount]input.KeySample, escapeDown bool) error {
-	return g.updateFrame(wall, focused, escapeDown, func(playing bool) error {
+	return g.updateFrame(wall, focused, escapeDown, nil, func(playing bool) error {
 		if err := g.session.UpdateWithEdgesAt(wall, playing, samples); err != nil {
 			return err
 		}
