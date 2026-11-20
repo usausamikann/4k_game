@@ -63,6 +63,27 @@ go run . -tps 120 -debug-input
 go run . -metronome-sound glass_002 -debug-audio
 ```
 
+### 入力方式の比較（試験実装）
+
+通常はEbitengine v2.10.5の押下・解放エッジと押下時間を使い、短いタップや
+Release→Pressの取りこぼしを軽減する。この方式では同一tick内の無制限な
+Press/Release往復の復元までは保証しない。
+
+Windows版に限り `-raw-input=true` で実験用のWindows Raw Input方式を有効にできる。
+この方式はWM_INPUTの押下・解放を順番に受け取り、受信時刻をゲームの判定時計へ変換する。
+受信時刻は物理スイッチが押された瞬間の時刻ではない。入力キューが溢れた場合は
+イベント欠落を記録し、キー状態の再同期を行う。Windows実機での比較検証は未完了。
+
+```sh
+go run . -keys D,F,J,K -debug-input -raw-input=false
+go run . -keys D,F,J,K -debug-input -raw-input=true
+```
+
+Raw Inputのキー対応は暫定的にA〜Zだけに制限する。`; `や`] `などの記号キー
+（特に日本語JIS配列）を含む場合は、誤ったスキャンコードを使わず自動的に
+Ebitengine側へフォールバックする。Windows以外も自動的にフォールバックする。
+判定幅、中点分割、音声オフセットA/B、TPS設定は変わらない。
+
 `go test ./...` は画面なしで譜面・判定・時計・描画対象計算の単体テストを実行する。
 既存の描画テストは `go test -tags=graphics ./...` で明示的に実行できる。
 描画テストは実際にウィンドウを開き、数フレーム後に自動で閉じる。
