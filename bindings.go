@@ -62,3 +62,46 @@ func parseBindings(text string) ([chart.LaneCount]ebiten.Key, error) {
 	}
 	return keys, nil
 }
+
+// Standard US physical letter-position scancodes. Non-letter keys are
+// intentionally excluded: JIS punctuation positions can differ.
+var keyScanCodes = map[ebiten.Key]uint16{
+	ebiten.KeyA:            0x1E,
+	ebiten.KeyB:            0x30,
+	ebiten.KeyC:            0x2E,
+	ebiten.KeyD:            0x20,
+	ebiten.KeyE:            0x12,
+	ebiten.KeyF:            0x21,
+	ebiten.KeyG:            0x22,
+	ebiten.KeyH:            0x23,
+	ebiten.KeyI:            0x17,
+	ebiten.KeyJ:            0x24,
+	ebiten.KeyK:            0x25,
+	ebiten.KeyL:            0x26,
+	ebiten.KeyM:            0x32,
+	ebiten.KeyN:            0x31,
+	ebiten.KeyO:            0x18,
+	ebiten.KeyP:            0x19,
+	ebiten.KeyQ:            0x10,
+	ebiten.KeyR:            0x13,
+	ebiten.KeyS:            0x1F,
+	ebiten.KeyT:            0x14,
+	ebiten.KeyU:            0x16,
+	ebiten.KeyV:            0x2F,
+	ebiten.KeyW:            0x11,
+	ebiten.KeyX:            0x2D,
+	ebiten.KeyY:            0x15,
+	ebiten.KeyZ:            0x2C,
+}
+
+func scanCodesForBindings(keys [chart.LaneCount]ebiten.Key) ([chart.LaneCount]uint16, bool) {
+	var codes [chart.LaneCount]uint16
+	for lane, key := range keys {
+		code, ok := keyScanCodes[key]
+		if !ok {
+			return codes, false
+		}
+		codes[lane] = code
+	}
+	return codes, true
+}

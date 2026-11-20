@@ -150,4 +150,19 @@ func (s *Session) UpdateWithRawAt(wall time.Time, focused bool, raw []input.RawE
 	return s.finishUpdate(now, visual, judgement)
 }
 
+// UpdateWithRawResyncAt releases held judge keys after a lost Raw Input batch.
+func (s *Session) UpdateWithRawResyncAt(wall time.Time, focused bool, down [chart.LaneCount]bool) error {
+	now, visual, judgement, err := s.prepareUpdate(wall, focused)
+	if err != nil {
+		return err
+	}
+	s.events = s.tracker.ResyncRaw(focused, down, judgement, s.events)
+	return s.finishUpdate(now, visual, judgement)
+}
+
+// SyncRawState records the physical snapshot while the audio device is not ready.
+func (s *Session) SyncRawState(down [chart.LaneCount]bool) {
+	s.tracker.SyncRawState(down)
+}
+
 func (s *Session) Statistics() judge.Stats { return s.engine.Statistics() }

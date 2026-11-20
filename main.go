@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"image/color"
@@ -72,6 +73,9 @@ type game struct {
 	keyPlayback *metronome.KeyPlayback
 	debugAudio  bool
 	audioHUD    string
+	rawInput    *input.RawReader
+	rawBuf      []input.RawEvent
+	lastRawReadErrors uint64
 }
 
 func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.Sudden) (*game, error) {
@@ -95,6 +99,21 @@ func newGame(path string, bpm, speed float64, offsets play.Offsets, sudden play.
 }
 func (g *game) Update() error {
 	wall := time.Now()
+	focused := ebiten.IsFocused()
+	escapeDown := ebiten.IsKeyPressed(ebiten.KeyEscape)
+	if g.rawInput != nil {
+		batch, lost, snapshot := g.rawInput.DrainUpTo(wall, g.rawBuf[:0])
+		g.rawBuf = batch
+		if failed := g.rawInput.FailedReads(); failed > g.lastRawReadErrors {
+			log.Printf("raw keyboard input read errors: %d total", failed)
+			g.lastRawReadErrors = failed
+		}
+		if lost != 0 {
+			log.Printf("raw keyboard input dropped %d events; resynchronizing keys", lost)
+			return g.updateWithRawResyncAt(wall, focused, snapshot, escapeDown)
+		}
+		return g.updateWithRawAt(wall, focused, g.rawBuf, escapeDown)
+	}
 	var samples [chart.LaneCount]input.KeySample
 	for lane, key := range g.keys {
 		samples[lane] = input.KeySample{
@@ -104,7 +123,7 @@ func (g *game) Update() error {
 			StillDown: inpututil.KeyPressDuration(key) > 0,
 		}
 	}
-	return g.updateWithEdgesAt(wall, ebiten.IsFocused(), samples, ebiten.IsKeyPressed(ebiten.KeyEscape))
+	return g.updateWithEdgesAt(wall, focused, samples, escapeDown)
 }
 
 // updateAt preserves the existing deterministic test entry point without
@@ -114,7 +133,7 @@ func (g *game) updateAt(wall time.Time, focused bool, down [chart.LaneCount]bool
 }
 
 func (g *game) updateWithPauseAt(wall time.Time, focused bool, down [chart.LaneCount]bool, escapeDown bool) error {
-	return g.updateFrame(wall, focused, escapeDown, func(playing bool) error {
+	return g.updateFrame(wall, focused, escapeDown, nil, func(playing bool) error {
 		g.down = down
 		if !playing {
 			g.down = [chart.LaneCount]bool{}
@@ -133,13 +152,36 @@ func (g *game) updateWithEdgesAt(wall time.Time, focused bool, samples [chart.La
 	})
 }
 
-func (g *game) updateFrame(wall time.Time, focused, escapeDown bool, step func(playing bool) error) error {
+func (g *game) updateWithRawAt(wall time.Time, focused bool, raw []input.RawEvent, escapeDown bool) error {
+	return g.updateFrame(wall, focused, escapeDown, func() { g.session.SyncRaw(raw) }, func(playing bool) error {
+		if err := g.session.UpdateWithRawAt(wall, playing, raw); err != nil {
+			return err
+		}
+		g.down = g.session.Pressed()
+		return nil
+	})
+}
+
+func (g *game) updateWithRawResyncAt(wall time.Time, focused bool, down [chart.LaneCount]bool, escapeDown bool) error {
+	return g.updateFrame(wall, focused, escapeDown, func() { g.session.SyncRawState(down) }, func(playing bool) error {
+		if err := g.session.UpdateWithRawResyncAt(wall, playing, down); err != nil {
+			return err
+		}
+		g.down = g.session.Pressed()
+		return nil
+	})
+}
+
+func (g *game) updateFrame(wall time.Time, focused, escapeDown bool, onWait func(), step func(playing bool) error) error {
 	g.pause.Update(focused, escapeDown)
 	playing := focused && !g.pause.active
 	if g.debugAudio && g.metronome != nil {
 		g.metronome.EnableDiagnostics()
 	}
 	if g.metronome != nil && !g.metronome.UpdateAt(wall, playing) {
+		if onWait != nil {
+			onWait()
+		}
 		if g.keyPlayback != nil {
 			if err := g.keyPlayback.SetActive(false); err != nil {
 				return err
@@ -286,6 +328,7 @@ func main() {
 	keyLanes := flag.String("keysound-lanes", "drop_002,drop_002,drop_002,drop_002", "four keysound IDs in lane order")
 	keyVolume := flag.Int("keysound-volume", 50, "keysound volume: 0..100 percent")
 	metVolume := flag.Int("metronome-volume", 50, "metronome volume: 0..100 percent")
+	rawInput := flag.Bool("raw-input", false, "experimental Windows raw input; use Ebitengine edge fallback by default")
 	flag.Parse()
 	audioSettings, err := metronome.ParseSettings(*keyMode, *keySound, *keyLanes, *keyVolume, *metVolume)
 	if err != nil {
@@ -315,6 +358,21 @@ func main() {
 		log.Fatal(err)
 	}
 	g.keys = keys
+	if *rawInput {
+		if codes, ok := scanCodesForBindings(g.keys); ok {
+			reader, err := input.NewRawReader(codes)
+			if err != nil {
+				if !errors.Is(err, input.ErrRawInputUnsupported) {
+					log.Printf("raw input unavailable; using Ebitengine edges: %v", err)
+				}
+			} else {
+				g.rawInput = reader
+				defer g.rawInput.Close()
+			}
+		} else {
+			log.Printf("raw input disabled for non-letter bindings; using Ebitengine edges")
+		}
+	}
 	if err := g.enableAudio(*sound, *bpm, audioSettings); err != nil {
 		log.Fatal(err)
 	}

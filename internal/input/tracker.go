@@ -218,3 +218,9 @@ func (t *Tracker) ResyncRaw(focused bool, down [chart.LaneCount]bool, at time.Du
 	t.focused = focused
 	return dst
 }
+
+// SyncRawState updates the physical snapshot without judging held keys.
+func (t *Tracker) SyncRawState(down [chart.LaneCount]bool) {
+	t.physDown = down
+	t.blocked = down
+}
